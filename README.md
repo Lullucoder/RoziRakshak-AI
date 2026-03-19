@@ -961,8 +961,3 @@ This repository will be used to progressively build:
 - and the final demo-ready prototype.
 
 ---
-
-## 32. Team Note
-
-If needed for submission, replace the project name, screenshots, video links, team details, and deployment links in later phases while keeping this README as the strategic backbone of the solution.
-
