@@ -916,48 +916,7 @@ This tells a full story: **problem → trigger → trust → payout → impact**
 
 ---
 
-## 25. Success Metrics
 
-The prototype will be evaluated against measurable outcomes.
-
-## Product KPIs
-
-* onboarding completion rate
-* quote-to-policy conversion rate
-* weekly renewal rate
-* payout turnaround time
-* claim automation rate
-* fraud detection precision
-* false-positive review rate
-* protected earnings per worker
-
-## Impact KPIs
-
-* income volatility reduced
-* average time to support after disruption
-* repeat usage / retention
-* worker trust score / NPS
-
----
-
-## 26. Why This Project Can Win
-
-RoziRakshak AI is not just a technically compliant answer. It is a **judge-friendly, user-centric, and business-credible** solution.
-
-### It can win because it is:
-
-* **highly relevant** to India's gig economy,
-* **fully aligned** with the problem constraints,
-* **clear in scope**,
-* **strong on AI depth**,
-* **strong on fraud prevention**,
-* **easy to demo live**,
-* **practical to build in stages**,
-* and **emotionally compelling** because it protects livelihoods, not just assets.
-
-This is the kind of product that feels meaningful, believable, and scalable.
-
----
 
 ## 27. Future Extensions
 
