@@ -1023,107 +1023,175 @@ This repository will be used to progressively build:
 * and the final demo-ready prototype.
 
 ---
+## 32. Adversarial Defense & Anti-Spoofing Strategy (GPS Spoofing Rings)
 
-## 32. Adversarial Defense & Anti-Spoofing Strategy
+**Context:** A coordinated syndicate of ~500 delivery workers in a tier-1 city exploited a parametric insurance platform using GPS-spoofing apps. Operating from home via Telegram-coordinated groups, they faked their presence in red-alert weather zones and drained the liquidity pool with mass false payouts.
 
-> **Context:** A coordinated syndicate of 500 delivery workers in a tier-1 city exploited a parametric insurance platform using GPS-spoofing apps. Operating from home via Telegram-coordinated groups, they faked their presence in red-alert weather zones and drained the liquidity pool with mass false payouts. RoziRakshak is designed so this attack cannot succeed.
+**RoziRakshak is designed so this attack cannot succeed** because a GPS coordinate is treated as a *claim*, not a proof.
+
+---
 
 ### The Core Problem With GPS-Only Verification
 
-A GPS coordinate is a claim, not a proof. A spoofing app can emit any coordinate at any time with no signal anomaly. Any system that trusts GPS coordinates as the sole proof of a worker's presence in a trigger zone will be exploited. Our architecture treats GPS as one signal among many — and the weakest one.
+A spoofing app can emit any coordinate at any time with no obvious anomaly. Any system that trusts GPS coordinates as the sole proof of presence in a trigger zone will be exploited.
+
+**Our architecture treats GPS as one signal among many — and the weakest one.**  
+We require *corroboration* across device behaviour, network conditions, and historical consistency.
 
 ---
 
-### 1. The Differentiation: Genuine Stranded Worker vs. Bad Actor
+## 1) Differentiation: Genuine Stranded Worker vs. Bad Actor
 
-The fundamental difference between a genuinely stranded worker and a GPS spoofer is **corroborating signal density**. A real rider in a real rainstorm generates a consistent, multi-layered signal footprint across device sensors, network behaviour, and historical context. A spoofer generates only a GPS coordinate and nothing else.
+The fundamental difference between a genuinely stranded worker and a GPS spoofer is **corroborating signal density**.
 
-We evaluate every claim against five independent signal layers simultaneously:
+- A real rider in a real storm produces a consistent, multi-layered footprint.
+- A spoofer produces “perfect GPS in isolation” (and often at home).
 
-**Layer 1 — Sensor Fusion (on-device)**
-The PWA reads device sensors that a GPS spoofing app cannot fake simultaneously. We are explicit about what is available in-browser today vs. what requires a native bridge in production:
-
-*Available in-browser (prototype, no special permission required):*
-- **Accelerometer variance** — a stationary home device shows near-zero motion; a genuinely stranded rider shows vibration from rain, wind, or idle engine movement. Available on virtually all Android mid-range devices via the browser DeviceMotion API, no user permission required.
-- **Network type (WiFi vs. 4G/5G)** — a rider at home has stable WiFi; a rider in a flooded urban zone is on degraded cellular. Available via the browser Network Information API on Android Chrome, no permission required.
-- **GPS accuracy radius** — spoofing apps emit artificially clean, constant-accuracy signals. A real device in a storm shows fluctuating accuracy (10–40 m range). Available via the browser Geolocation API's `accuracy` field.
-- **Connection speed degradation** — measurable via the Network Information API's `downlink` and `rtt` fields; degrades in storm-hit zones.
-
-*Requires Capacitor.js native bridge (production path):*
-- **Mock location flag** (`isFromMockProvider`) — only accessible via native Android API, not exposed to browser PWAs.
-- **GPS satellite count** — not exposed to browsers; requires native access.
-- **Barometric pressure** — hardware sensor present only on select mid-range and flagship devices (not reliable on budget phones in the ₹6,000–₹10,000 range where many gig workers sit); requires native bridge to read.
-- **True battery drain rate** — the Battery Status API is deprecated in most browsers due to privacy concerns; reliable access requires native wrapper.
-
-**Prototype architecture:** The PWA uses the four in-browser signals. **Production path:** Capacitor.js wraps the existing Next.js PWA in a thin native Android shell, exposing the restricted sensors without abandoning the PWA architecture or requiring a React Native rewrite. This is a known, low-effort migration path.
-
-None of the in-browser signals can be faked by a standard GPS mock location app. The on-device sensor bundle is hashed and submitted with every claim event.
-
-**Layer 2 — GPS Signal Quality Metadata**
-Real GPS in a storm is noisy: accuracy radius fluctuates between 10–40 metres, satellite count drops, and signal-to-noise ratio degrades. GPS spoofing apps emit artificially clean signals — constant accuracy, constant satellite count, zero drift. We log the raw GPS metadata (not just the coordinate) at every ping. A spoofed location produces a statistically implausible signal quality profile that our Isolation Forest flags as an outlier within the first 10 minutes of claimed exposure.
-
-**Layer 3 — Historical Mobility Pattern Consistency**
-Every registered worker builds a mobility baseline over their first 2–4 weeks: their typical home location (where pings cluster overnight), their habitual route corridors, their average speed between pings, and their zone entry/exit patterns. During a claim event, the system asks: is this worker's current movement pattern consistent with their established profile? A spoofer at home whose GPS coordinates suddenly place them in a zone 8 km away — with no travel trace, no intermediate pings, and no speed-consistent path — fails this check immediately. A genuine rider arrives in a zone via a plausible route.
-
-**Layer 4 — Cross-Worker Zone Density Anomaly**
-Every zone has a known "normal" — from weeks of historical activity data, we know that Zone X on a Tuesday evening typically has 20–30 active riders. When a trigger event fires, the system checks how many policyholders are simultaneously claiming exposure in that zone. If 200 workers suddenly claim they were all in Zone X at the exact same moment, that is physically impossible — the zone cannot have 10× its normal rider population. The entire zone's claims for that window are held for review. A single genuine rider in that zone is completely unaffected by this check. A 500-person coordinated ring spoofing the same zone at the same time is not.
-
-**Layer 5 — Network Triangulation Cross-Check**
-The device's cellular tower registration is logged alongside GPS. A rider at home connects to their local cell tower. A rider in a storm-hit zone connects to towers in that zone. These two signals must be geographically consistent. A GPS spoofer at home whose device GPS says "Zone 7, Koramangala" but whose cellular registration says "Jayanagar" fails this check. This cross-check does not require user permission beyond the standard location API — tower data is part of the browser's network information API.
+We evaluate every claim against **five independent signal layers** simultaneously.
 
 ---
 
-### 2. The Data: What We Analyse Beyond Basic GPS
+## Layer 1 — Lightweight Sensor Fusion (works on budget Android)
 
-The following is the complete feature vector submitted per claim event. No single feature is decisive; the Isolation Forest and Claim Confidence Scorer evaluate all features jointly.
+We intentionally rely on signals that typically exist even on **₹5k–₹15k** Android devices.
 
-**Device-level features (collected by the PWA service worker)**
+**In-browser / PWA signals (prototype-ready):**
+- **Motion variance (accelerometer over 30s window):**  
+  Home devices tend to be near-stationary; a field rider shows micro-movement (handling phone, walking, bike vibration).
+- **Network type (Wi‑Fi vs cellular) + RTT/downlink:**  
+  Home Wi‑Fi is usually stable; storm-hit zones often show degraded cellular and higher RTT.
+- **GPS accuracy radius (meters):**  
+  Real GPS during storms is noisy (accuracy fluctuates). Spoofers often emit suspiciously clean accuracy patterns.
 
-| Feature | Availability | Why it matters for fraud detection |
-| --- | --- | --- |
-| Accelerometer variance (30-second window) | ✅ In-browser (DeviceMotion API) | Stationary home device vs. field rider |
-| Network type (WiFi / 4G / 5G) | ✅ In-browser (Network Information API) | Home WiFi vs. field cellular |
-| GPS accuracy radius (metres) | ✅ In-browser (Geolocation API) | Spoofed GPS is suspiciously accurate |
-| Connection speed / RTT | ✅ In-browser (Network Information API) | Degrades in storm-hit zones |
-| Barometric pressure (hPa) | ⚠️ Native bridge (Capacitor.js) — hardware absent on budget phones | Correlates with storm presence |
-| GPS satellite count | ⚠️ Native bridge (Capacitor.js) | Drops in storms; stable on spoofing apps |
-| Battery drain rate (% per hour) | ⚠️ Native bridge (Capacitor.js) — Battery API deprecated in browsers | High field usage vs. idle home device |
-| Screen-on event frequency | ⚠️ Native bridge (Capacitor.js) | Active field usage pattern vs. idle |
-| Mock location setting flag (`isFromMockProvider`) | ⚠️ Native bridge (Capacitor.js) — not accessible in browser PWA | Catches OS-level developer mock location |
-| Device emulator flag | ⚠️ Native bridge (Capacitor.js) | Catches Android emulator-based spoofing |
+> Note: availability depends on device/browser. If a sensor/API is missing, we **don’t fail the worker** — the system simply down-weights that feature.
 
-**Behavioural / historical features (computed from Firestore history)**
+**Production hardening (native wrapper, no full app rewrite):**
+- Wrap the existing Next.js PWA using **Capacitor.js** to add:
+  - Mock-location detection (`isFromMockProvider`, dev settings)
+  - Emulator detection heuristics
+  - More reliable sensor access where supported (e.g., motion, battery stats)
 
-| Feature | Why it matters |
-| --- | --- |
-| Distance from established home cluster (km) | Spoofer stays home; real rider travels |
-| Route continuity score | Did GPS pings trace a plausible path to the zone? |
-| Speed between last 3 pings (km/h) | Teleportation (>120 km/h between pings) = spoof |
-| Zone entry method (gradual vs. instant) | Real riders enter zones progressively |
-| Claim frequency in rolling 7 days | Sudden spike after no prior claims = suspicious |
-| Historical claim-to-trigger ratio | Workers who claim every possible event |
-| Days since registration | New accounts filing immediately = synthetic identity |
-| Payout account change recency | UPI ID changed just before a claim event |
+This is a **low-effort migration path** (PWA stays the product; native shell only strengthens verification).
 
-**Network / infrastructure features**
+### Device Compatibility (Minimum Requirements)
 
-| Feature | Why it matters |
-| --- | --- |
-| Cell tower zone vs. GPS zone match | Catches home-based GPS spoofing |
-| IP geolocation vs. GPS zone match | Secondary corroboration |
-| Shared device fingerprint across accounts | Detects one person running multiple worker identities |
-| Shared UPI ID across accounts | Detects payout consolidation in a fraud ring |
+RoziRakshak relies on a **minimum baseline** of device signals to keep payouts fraud-resistant.  
+If a device cannot provide these baseline signals reliably, we mark it as **Not Supported** (instead of making a low-confidence decision that could unfairly delay or deny a genuine worker).
 
-**Coordinated ring detection features (cross-worker)**
+**Minimum required capabilities (baseline):**
+- GPS / Geolocation with accuracy metadata
+- Motion sensing (accelerometer / DeviceMotion)
+- Cellular connectivity indicators (4G/5G/Cellular vs Wi‑Fi) and basic network stats where available
 
-| Feature | Why it matters |
-| --- | --- |
-| Simultaneous zone claim density ratio | Abnormal mass arrival in a single zone/window |
-| Telegram/social graph proxy (shared device → shared account → shared zone/time) | Infers coordination without needing social data |
-| Payout destination clustering | Multiple workers routing to the same UPI/wallet |
-| Claim submission timestamp clustering | 500 claims submitted within a 3-minute window = bot-coordinated |
+**When we detect an unsupported device:**
+- The user is shown a clear message:  
+  *“Your device is not supported for parametric claim verification because required sensors/network signals are unavailable.”*
+- The worker is prompted to continue only after switching to a supported device (or completing re-verification on a supported device).
+
+This prevents both fraud (no-signal devices are easy to spoof) and unfair outcomes (we don’t punish workers for missing telemetry).
+---
+
+## Layer 2 — GPS Signal Quality Metadata (not just coordinates)
+
+Real GPS in storms becomes “messy”: accuracy fluctuates, drift appears, intermittent gaps happen.
+
+Spoofing apps often look *too perfect*:
+- constant accuracy
+- constant pings at identical intervals
+- minimal drift over long time windows
+
+We log **raw GPS metadata** (e.g., accuracy, timestamp gaps, jitter) and score **statistical plausibility** using an anomaly detector (e.g., Isolation Forest / robust z-score rules).
+
+**Example heuristics (tunable per city):**
+- Accuracy standard deviation stays unrealistically low across N pings → suspicious
+- Identical coordinate repeats with no jitter for long durations → suspicious
 
 ---
+
+## Layer 3 — Historical Mobility Pattern Consistency (hard to fake at scale)
+
+Each worker builds a baseline over ~2–4 weeks:
+- typical overnight cluster (“home area”)
+- usual corridors/routes
+- typical speeds and dwell times
+- normal zone entry/exit patterns
+
+During a claim, we ask:
+- Did the user arrive via a plausible path?
+- Are there intermediate pings?
+- Is speed between pings physically realistic?
+
+**Example checks:**
+- “Teleportation”: >120 km/h between pings or large distance jumps with no route continuity → flagged
+- Sudden appearance 8 km away with no travel trace → flagged
+
+A spoofer at home fails this quickly. A real rider naturally passes.
+
+---
+
+## Layer 4 — Cross-Worker Zone Density Anomaly (defeats Telegram-coordinated rings)
+
+Every zone has a learned “normal” density from historical platform activity.
+
+When a trigger event fires, we compute:
+- **simultaneous claim density ratio** = current claimants in zone / expected normal active riders
+
+If a zone suddenly has 10× the normal rider population, that’s physically implausible.
+
+**Action:** hold/verify *that window’s cluster*, not the entire system.  
+A genuine single rider is typically unaffected; a 500-person ring spoofing the same zone/time is caught.
+
+---
+
+## Layer 5 — Network-Side Corroboration (production-grade)
+
+We treat network corroboration as a supporting layer, not a single point of failure.
+
+Depending on deployment constraints, this can include:
+- **IP geolocation vs claimed zone** (weak but useful)
+- **latency/ASN consistency** (proxy/VPN patterns)
+- **native-level network signals** via Capacitor/Android APIs where feasible
+
+> Important: browser PWAs typically do **not** expose cell tower IDs directly.  
+> In production, deeper tower-level checks would require OS-level access or carrier/aggregator integrations.
+
+---
+
+# 2) What We Analyze Beyond Basic GPS (Feature Vector)
+
+No single feature is decisive. The **Claim Confidence Scorer** evaluates all signals jointly.
+
+### Device-level (PWA / low-end friendly)
+| Feature | Availability | Why it matters |
+|---|---:|---|
+| Motion variance (30s window) | ✅ Often available | Stationary home device vs field activity |
+| Network type (Wi‑Fi / cellular) | ✅ Often available | Home Wi‑Fi vs field cellular |
+| RTT / downlink (when available) | ✅ Partial support | Degrades in congested storm zones |
+| GPS accuracy radius (m) | ✅ | Spoofers often look “too clean” |
+
+### Production hardening (native wrapper, optional)
+| Feature | Availability | Why it matters |
+|---|---:|---|
+| Mock location flag | ⚠️ Native | Directly catches common spoof setups |
+| Emulator flag | ⚠️ Native | Blocks emulator farms |
+| Battery usage patterns (coarse) | ⚠️ Native | Idle-at-home vs active-in-field pattern |
+
+### Behavioral / historical (server-side from Firestore)
+| Feature | Why it matters |
+|---|---|
+| Distance from established home cluster | Spoofer stays home; real rider travels |
+| Route continuity score | Did pings trace a plausible path? |
+| Speed between last pings | Teleportation = spoof |
+| Claim frequency (rolling 7 days) | Sudden spikes indicate abuse |
+| Days since registration | New accounts claiming instantly = synthetic |
+| Payout account change recency | UPI changed right before claim = risk |
+
+### Cross-worker ring detection
+| Feature | Why it matters |
+|---|---|
+| Simultaneous claim density ratio | Mass spoofing in same zone/window |
+| Shared device fingerprint / shared payout IDs | Detects fraud rings and consolidation |
+| Claim timestamp clustering | 500 claims within 3 minutes = coordination/botting |
 
 ### 3. The UX Balance: Handling Flagged Claims Without Penalizing Honest Workers
 
