@@ -454,89 +454,75 @@ Instead of asking "What exact rupee did you lose?", the system asks:
 ## 13. AI/ML Strategy
 
 This is where the platform becomes more than a rules engine.
+AI Module 1: Dynamic Premium Engine
+Objective: Personalize weekly price while keeping fairness and transparency.
+Input signals
+city_tier, zone_id, week_of_year, season_flag, forecasted_disruption_probability, shift_start_hour, shift_duration_hours, declared_weekly_income_slab, claim_count_last_4_weeks, trust_score, days_since_registration, prior_zone_disruption_density
+Model
 
-## AI Module 1: Dynamic Premium Engine
+Primary: XGBoost Regressor — gradient-boosted trees chosen for strong tabular performance, native feature importance for explaining premium changes to riders, and fast inference. Outperforms Random Forest on structured insurance data because it corrects errors iteratively rather than averaging independent trees.
+Fallback: Deterministic rule engine — premium falls back to a hardcoded city_tier × zone_risk_band × shift_period multiplier table in JSON. No external call needed, returns in under 50ms.
 
-**Objective:** Personalize weekly price while keeping fairness and transparency.
+Output
 
-### Input signals
+Personalized weekly premium (₹), risk tier (Low / Medium / High), top 2 plain-language reasons driving the price.
 
-* city,
-* zone,
-* season,
-* forecasted weather severity,
-* typical working window,
-* weekly income slab,
-* prior disruption density,
-* claim history,
-* trust score.
+Build timeline
 
-### Model
+Week 1: Generate 500–1,000 synthetic rider records. Train baseline XGBoost. Validate RMSE on 20% held-out split. Serialize with Joblib. Expose via POST /premium/quote on FastAPI. Wire to Firestore policy creation flow.
+Week 2: Add feature importance extraction. Implement JSON multiplier fallback. Unit test both paths.
 
-* **Primary:** XGBoost (gradient-boosted trees) — chosen for strong tabular performance, fast inference, and built-in feature importance for explaining premium changes to riders.
-* **Fallback:** Deterministic rule engine — if the model service is unavailable, premium falls back to city × zone × shift multiplier tables with fixed coefficients, guaranteeing continuity.
 
-### Output
+AI Module 2: Disruption Forecasting Engine
+Objective: Predict next-week disruption probability per city-zone every Sunday evening — feeds premium pricing and pre-alerts riders before high-risk weeks.
+Model
 
-* personalized weekly premium,
-* risk tier,
-* explanation highlights.
+Primary: Facebook Prophet — additive decomposition of trend, seasonality, and holiday effects. Handles Indian monsoon weekly cycles natively, registers Diwali and monsoon onset as named regressors in one line, and is robust to missing data. Chosen over LSTM (needs large data, overfits on months of mocked records) and ARIMA (manual p,d,q tuning, cannot handle multi-seasonality without becoming SARIMA). Runs as a scheduled weekly job, not on-demand.
+Fallback: 4-week rolling average disruption frequency per zone from Firestore triggerEvents — used for zones with fewer than 8 weeks of history.
 
-## AI Module 2: Disruption Forecasting Engine
+Use cases
 
-**Objective:** Predict next-week disruption load and expected claims pressure.
+Price ahead of the week, allocate risk pools, alert riders before high-risk windows, help admin anticipate payout volumes.
 
-### Model
+Build timeline
 
-* **Primary:** Facebook Prophet — designed for weekly/seasonal time-series, handles Indian monsoon seasonality and city-specific disruption cycles natively. Runs as a scheduled weekly job, not on-demand.
-* **Fallback:** 4-week rolling average of same-city disruption frequency — simple but stable when Prophet has insufficient history (e.g., new cities).
+Week 1: Generate 6 months of mocked disruption data per zone with monsoon-pattern seeds. Train Prophet. Verify decomposition via model.plot_components().
+Week 2: Schedule forecast as a Firebase Cloud Function every Sunday 8pm IST. Write results to forecasts Firestore collection. Confirm high-risk zones produce higher premiums.
 
-### Use cases
 
-* price ahead of the week,
-* allocate risk pools,
-* alert riders before high-risk windows,
-* help admin anticipate payout volumes.
+AI Module 3: Fraud Detection Engine
+Objective: Catch suspicious claims without penalizing genuine riders. (See Section 32 for full adversarial defense architecture.)
+Model
 
-## AI Module 3: Fraud Detection Engine
+Primary: Isolation Forest (contamination=0.05, n_estimators=100) — unsupervised anomaly detection on location, timing, device, and behavioural feature vectors. Normal points take many random splits to isolate; anomalies are isolated in very few. No labelled fraud data needed at launch. Tuned weekly based on false-positive rate in the admin review queue.
+Secondary: Graph-based duplicate detection — builds a worker_id → device_fingerprint → upi_id linkage graph in Firestore. Flags any device fingerprint linked to more than 2 accounts or any UPI ID shared across more than 3 accounts. Catches coordinated rings that look individually normal to the forest.
+Fallback: Hard-coded rule engine — speed > 80 km/h between pings → hold; emulator flag → hold; > 3 claims in rolling 7 days → hold. Fires unconditionally regardless of model availability.
 
-**Objective:** Catch suspicious claims without penalizing genuine riders. (See Section 32 for full adversarial defense architecture.)
+Build timeline
 
-### Model
+Week 2: Build 20-feature vector extractor. Train on 500 synthetic records (90% normal, 10% injected anomalies). Serialize and expose via POST /fraud/score.
+Week 3: Implement Firestore graph checker as a Cloud Function. Wire both into the claims orchestrator. End-to-end test: spoofed demo claim hits Track C with plain-language reason shown to worker.
 
-* **Primary:** Isolation Forest — unsupervised anomaly detection on location, timing, device, and behavioural feature vectors. No labelled fraud data needed at launch; flags outliers automatically.
-* **Secondary:** Graph-based duplicate detection — builds a worker–device–account linkage graph in Firestore and flags connected components where multiple accounts share a device fingerprint or UPI ID.
-* **Fallback:** Hard-coded rule engine — impossible speed (>80 km/h between pings), emulator flag, or >3 claims in rolling 7 days auto-suspends claim for manual review, regardless of model availability.
 
-## AI Module 4: Claim Confidence Scoring
+AI Module 4: Claim Confidence Scoring
+Each claim receives a confidence score (0–1) based on trigger authenticity, exposure match, behaviour consistency, historical trust, and device/location integrity.
+Claims above 0.75 are auto-approved. Claims between 0.40–0.75 go to a soft review queue (admin resolves within 2 hours). Claims below 0.40 are held and the worker is notified with a plain-language reason — never silently denied.
+Model
 
-Each claim receives a confidence score (0–1) based on:
+Primary: Logistic Regression on the 9-feature combined vector from Modules 1–3 — lightweight, produces well-calibrated probabilities (a score of 0.75 means genuinely 75% confident, not just a ranking), and its coefficients map directly to plain-language reasons shown to the worker.
+Fallback: Weighted rule score using 5 binary checks (trigger confirmed / zone overlap / no emulator / speed plausible / no duplicate) — each check worth 0.2, scores summed.
 
-* trigger authenticity,
-* exposure match,
-* behaviour consistency,
-* historical trust,
-* and device/location integrity.
+Build timeline
 
-Claims above **0.75** are auto-approved. Claims between **0.40–0.75** go to a soft review queue (admin resolves within 2 hours). Claims below **0.40** are held and the worker is notified with a plain-language reason — never silently denied.
+Week 2: Train on synthetic labelled outcomes from the Module 3 dataset. Wire as final step in the claims orchestrator Cloud Function. Unit test that clean claim ≥ 0.75 and spoofed claim < 0.40.
+Week 3: Surface score and top 2 contributing features in the admin fraud review UI.
 
-### Model
 
-* **Primary:** Logistic Regression on the combined feature vector from Modules 1–3 — lightweight, explainable, and produces calibrated probabilities.
-* **Fallback:** Weighted rule score using 5 binary checks (trigger confirmed / zone overlap / no emulator / speed plausible / no duplicate) — each check worth 0.2, scores summed.
+AI Module 5: Portfolio Intelligence Dashboard
+For insurers/admins, AI surfaces city-wise risk heat maps, predicted next-week claim volumes, fraud hotspots, loss ratios by trigger, and worker retention trends. This module consumes the outputs of Modules 1–4 already written to Firestore — no separate model, just real-time aggregation and visualization.
+Build timeline
 
-## AI Module 5: Portfolio Intelligence Dashboard
-
-For insurers/admins, AI surfaces:
-
-* city-wise risk heat maps,
-* predicted next-week claim volumes,
-* fraud hotspots,
-* loss ratios by trigger,
-* and worker retention trends.
-
----
-
+Week 3: Build admin Next.js dashboard. Wire Firestore real-time listeners. Render Leaflet heatmap from forecasts collection. Add Recharts for loss ratio and retention. Completable in 2–3 days once the upstream pipeline is running.
 ## 14. Fraud Prevention Philosophy
 
 Hackathon judges often ask a critical question:
