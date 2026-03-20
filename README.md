@@ -1156,42 +1156,55 @@ Depending on deployment constraints, this can include:
 > In production, deeper tower-level checks would require OS-level access or carrier/aggregator integrations.
 
 ---
+## 2) What We Analyze Beyond Basic GPS (Feature Vector)
 
-# 2) What We Analyze Beyond Basic GPS (Feature Vector)
+No single feature is decisive. The Claim Confidence Scorer evaluates all signals jointly.
 
-No single feature is decisive. The **Claim Confidence Scorer** evaluates all signals jointly.
+### Device-level features (collected by the PWA service worker)
 
-### Device-level (PWA / low-end friendly)
-| Feature | Availability | Why it matters |
-|---|---:|---|
-| Motion variance (30s window) | ✅ Often available | Stationary home device vs field activity |
-| Network type (Wi‑Fi / cellular) | ✅ Often available | Home Wi‑Fi vs field cellular |
-| RTT / downlink (when available) | ✅ Partial support | Degrades in congested storm zones |
-| GPS accuracy radius (m) | ✅ | Spoofers often look “too clean” |
+| Feature | Availability | Why it matters for fraud detection |
+|---|---|---|
+| Accelerometer variance (30-second window) | ✅ In-browser (DeviceMotion API) | Stationary home device vs. field rider |
+| Network type (WiFi / 4G / 5G) | ✅ In-browser (Network Information API) | Home WiFi vs. field cellular |
+| GPS accuracy radius (metres) | ✅ In-browser (Geolocation API) | Spoofed GPS is suspiciously accurate |
+| Connection speed / RTT | ✅ In-browser (Network Information API) | Degrades in storm-hit zones |
+| Barometric pressure (hPa) | ⚠️ Native bridge (Capacitor.js) — hardware absent on budget phones | Correlates with storm presence |
+| GPS satellite count | ⚠️ Native bridge (Capacitor.js) | Drops in storms; stable on spoofing apps |
+| Battery drain rate (% per hour) | ⚠️ Native bridge (Capacitor.js) — Battery API deprecated in browsers | High field usage vs. idle home device |
+| Screen-on event frequency | ⚠️ Native bridge (Capacitor.js) | Active field usage pattern vs. idle |
+| Mock location setting flag (`isFromMockProvider`) | ⚠️ Native bridge (Capacitor.js) — not accessible in browser PWA | Catches OS-level developer mock location |
+| Device emulator flag | ⚠️ Native bridge (Capacitor.js) | Catches Android emulator-based spoofing |
 
-### Production hardening (native wrapper, optional)
-| Feature | Availability | Why it matters |
-|---|---:|---|
-| Mock location flag | ⚠️ Native | Directly catches common spoof setups |
-| Emulator flag | ⚠️ Native | Blocks emulator farms |
-| Battery usage patterns (coarse) | ⚠️ Native | Idle-at-home vs active-in-field pattern |
+### Behavioural / historical features (computed from Firestore history)
 
-### Behavioral / historical (server-side from Firestore)
 | Feature | Why it matters |
 |---|---|
-| Distance from established home cluster | Spoofer stays home; real rider travels |
-| Route continuity score | Did pings trace a plausible path? |
-| Speed between last pings | Teleportation = spoof |
-| Claim frequency (rolling 7 days) | Sudden spikes indicate abuse |
-| Days since registration | New accounts claiming instantly = synthetic |
-| Payout account change recency | UPI changed right before claim = risk |
+| Distance from established home cluster (km) | Spoofer stays home; real rider travels |
+| Route continuity score | Did GPS pings trace a plausible path to the zone? |
+| Speed between last 3 pings (km/h) | Teleportation (>120 km/h between pings) = spoof |
+| Zone entry method (gradual vs. instant) | Real riders enter zones progressively |
+| Claim frequency in rolling 7 days | Sudden spike after no prior claims = suspicious |
+| Historical claim-to-trigger ratio | Workers who claim every possible event |
+| Days since registration | New accounts filing immediately = synthetic identity |
+| Payout account change recency | UPI ID changed just before a claim event |
 
-### Cross-worker ring detection
+### Network / infrastructure features
+
 | Feature | Why it matters |
 |---|---|
-| Simultaneous claim density ratio | Mass spoofing in same zone/window |
-| Shared device fingerprint / shared payout IDs | Detects fraud rings and consolidation |
-| Claim timestamp clustering | 500 claims within 3 minutes = coordination/botting |
+| Cell tower zone vs. GPS zone match | Catches home-based GPS spoofing |
+| IP geolocation vs. GPS zone match | Secondary corroboration |
+| Shared device fingerprint across accounts | Detects one person running multiple worker identities |
+| Shared UPI ID across accounts | Detects payout consolidation in a fraud ring |
+
+### Coordinated ring detection features (cross-worker)
+
+| Feature | Why it matters |
+|---|---|
+| Simultaneous zone claim density ratio | Abnormal mass arrival in a single zone/window |
+| Telegram/social graph proxy (shared device → shared account → shared zone/time) | Infers coordination without needing social data |
+| Payout destination clustering | Multiple workers routing to the same UPI/wallet |
+| Claim submission timestamp clustering | 500 claims submitted within a 3-minute window = bot-coordinated 
 
 ### 3. The UX Balance: Handling Flagged Claims Without Penalizing Honest Workers
 
