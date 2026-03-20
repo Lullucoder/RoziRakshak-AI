@@ -641,14 +641,6 @@ flowchart LR
     U --> S
 ```
 
-## Architecture principles
-
-* event-driven claim initiation,
-* modular AI services,
-* auditability of trigger decisions,
-* explainable premium changes,
-* and fallback rule-based execution if ML is unavailable.
-
 ---
 
 ## Architecture Principles
