@@ -609,33 +609,36 @@ India's gig workers are on mid-range Android devices. A PWA install prompt requi
 
 ```mermaid
 flowchart LR
-     A[Worker / Admin PWA — Next.js] --> B[Next.js API Routes / Firebase Functions]
-     B --> C[Onboarding & Policy Service]
-     B --> D[Pricing & Risk Engine]
-     B --> E[Claims Orchestrator]
-     B --> F[Notification Service — FCM]
+    A[Worker / Admin PWA — Next.js 14] --> B[Next.js API Routes on Vercel]
+    B --> C[Onboarding & Policy Service]
+    B --> D[Pricing & Risk Engine]
+    B --> E[Claims Orchestrator]
+    B --> F[Notification Service — FCM]
+    B --> G[Upstash Redis — Rate Limit & Job Queue]
 
-     G[Mocked Weather Feed] --> H[Trigger Monitoring Engine]
-     I[Mocked AQI Feed] --> H
-     J[Mock Platform Ops Feed] --> H
+    H[Mocked Weather Feed — JSON] --> I[Trigger Monitoring Engine — Cloud Function]
+    J[Mocked AQI Feed — JSON] --> I
+    K[Mock Platform Ops Feed — JSON] --> I
 
-     H --> E
-     D --> K[(Firestore)]
-     C --> K
-     E --> K
+    I --> E
+    D --> L[(Firestore)]
+    C --> L
+    E --> L
 
-     E --> L[Fraud Detection Engine]
-     D --> M[Forecasting Model — Prophet]
-     L --> N[Claim Confidence Score]
-     N --> O[Auto Approve / Review Queue]
-     O --> P[Simulated Payout Service]
+    E --> M[Fraud Detection Engine — Isolation Forest]
+    D --> N[Forecasting Model — Prophet]
+    M --> O[Claim Confidence Score — Logistic Regression]
+    O --> P[Auto Approve / Review Queue]
+    P --> Q[Simulated Payout Service]
 
-     P --> Q[Razorpay Sandbox / UPI Simulator]
-     K --> R[Admin Analytics Dashboard]
-     M --> R
-     L --> R
+    Q --> R[Razorpay Sandbox / UPI Simulator]
+    L --> S[Admin Analytics Dashboard]
+    N --> S
+    M --> S
 
-     S[Cloudflare R2] --> C
+    T[Cloudflare R2 — Document & Photo Storage] --> C
+    U[Google Maps Platform — Zones & Geofencing] --> A
+    U --> S
 ```
 
 ## Architecture principles
@@ -648,90 +651,145 @@ flowchart LR
 
 ---
 
+## Architecture Principles
+
+| Principle | What it means in GigShield |
+|----------|-----------------------------|
+| Event-driven claim initiation | Claims are never manually "filed" by workers in the traditional sense — a trigger event (rain, AQI spike, heat index breach) detected by the monitoring engine automatically initiates the claim pipeline. The worker simply confirms or provides optional evidence. |
+| Modular AI services | Each ML model (pricing, forecasting, fraud, confidence scoring) runs as an independent FastAPI microservice on Render. Any model can be retrained, swapped, or taken offline without affecting the rest of the system. |
+| Auditability of trigger decisions | Every trigger event writes a complete audit document to Firestore (`triggerEvents` collection) — source feed, raw value, threshold applied, timestamp, affected zone, and resulting action. This trail is queryable from the admin dashboard and is essential for regulatory transparency. |
+| Explainable premium changes | The pricing engine returns not just a premium amount but a breakdown of contributing factors (zone risk score, shift timing, claim history, seasonal adjustment) rendered to the worker as a simple visual explanation. XGBoost’s built-in feature importance powers this. |
+| Fallback rule-based execution | If any ML microservice is unavailable (Render cold start timeout, model error), every AI module has a deterministic fallback (multiplier table, rolling average, hard-coded rules). The system degrades gracefully — no claim is ever blocked because a model is down. |
+
+---
+
 ## 17. Tech Stack
 
-The stack is chosen for **precise fit** to the product's constraints: offline resilience for field workers, a single unified codebase, generous free tiers for all external services, and deployment entirely on Vercel.
+The stack is chosen for precise fit to the product’s constraints: offline resilience for field workers, a single unified codebase, generous free tiers for all external services, and a Vercel-first deployment model.
 
-## Frontend — PWA via Next.js
+---
 
-**Framework:** Next.js 14 (App Router) — serves both the worker mobile interface and the admin dashboard from one codebase. Role-based routing separates `/worker/*` and `/admin/*` views. The same build is deployed to Vercel as a single project.
+### Frontend — PWA via Next.js
 
-**PWA layer:** `next-pwa` (Workbox under the hood) registers a service worker that pre-caches the full UI shell, active policy data, and the claim submission form. Workers can open the app, see live policy status, and queue a claim submission with zero connectivity. The service worker syncs the queued claim to Firestore the moment signal returns.
+**Framework:** Next.js 14 (App Router) — serves both the worker mobile interface and the admin dashboard from one codebase. Role-based routing separates `/worker/` and `/admin/` views. The same build deploys to Vercel as a single project.
+
+**PWA layer:** `@ducanh2912/next-pwa` (Serwist — the actively maintained fork of `next-pwa`, fully compatible with App Router) registers a service worker that pre-caches the full UI shell, active policy data, and the claim submission form. Workers can open the app, view live policy status, and queue a claim submission with zero connectivity. The service worker syncs the queued claim to Firestore the moment signal returns via the Background Sync API.
 
 **Styling:** Tailwind CSS (utility-first, no runtime cost) + shadcn/ui component library (accessible, unstyled-by-default Radix primitives themed with Tailwind). shadcn/ui is chosen specifically because components are copied directly into the repo — no third-party bundle weight, no version drift.
 
-**Push notifications:** Firebase Cloud Messaging (FCM) via the PWA's service worker — handles trigger alerts, payout status updates, and weekly renewal reminders on Android and desktop without a native app.
-
-## Backend — Firebase
-
-**Auth:** Firebase Authentication with phone/OTP sign-in. OTP is the only viable onboarding flow for gig workers who may not have a Google account. Firebase handles the OTP delivery, session tokens, and refresh cycle natively — no custom auth server required.
-
-**Database:** Firestore (NoSQL, real-time). Collections map directly to the data model: `workers`, `policies`, `claims`, `triggerEvents`, `fraudSignals`, `payouts`. Firestore's real-time listeners power the worker dashboard's live claim status without polling. Offline persistence is enabled client-side so the worker app reads cached Firestore data when offline.
-
-**Serverless functions:** Firebase Cloud Functions (Node.js) run the claims orchestrator, fraud scoring pipeline, and payout simulation on triggers from Firestore document writes. No always-on server is needed; functions scale to zero.
-
-**File / photo storage:** **Cloudflare R2** — chosen over Firebase Storage because R2's free tier includes 10 GB storage and zero egress fees (Firebase Storage charges for downloads). Workers upload onboarding photos (ID, profile) and any optional claim evidence. R2 is accessed via a presigned URL issued by a Cloud Function; the PWA uploads directly from the browser, keeping Firebase Functions out of the upload path.
-
-## Caching / Job Queues — Redis (Upstash)
-
-**Upstash Redis** (serverless Redis, HTTP API) is used for two purposes: rate-limiting the OTP and claim submission endpoints (prevents abuse from the same phone/IP), and as a lightweight job queue for the weekly premium recalculation batch (Cloud Function enqueues worker IDs; another function dequeues and recomputes). Upstash's free tier covers 10,000 commands/day, which is sufficient for the prototype. No Redis server to manage — Upstash is accessed over HTTPS from Cloud Functions.
-
-## AI / ML Models
-
-All models run as Python microservices deployed on **Render** (free tier, spun up on demand) and called from Firebase Cloud Functions via HTTP.
-
-| Module | Primary Model | Why | Fallback |
-| --- | --- | --- | --- |
-| Premium Engine | XGBoost (scikit-learn pipeline) | Best accuracy on tabular rider + zone features; built-in feature importance for explainability | Deterministic multiplier table (city × zone × shift tier) |
-| Disruption Forecasting | Facebook Prophet | Handles weekly seasonality and Indian monsoon cycles; trains on mocked historical disruption data | 4-week rolling average per city |
-| Fraud Detection | Isolation Forest (sklearn) + graph duplicate check (Firestore) | Unsupervised; no labelled fraud data needed at launch | Hard-coded rule engine: speed > 80 km/h, emulator flag, or > 3 claims / 7 days → auto-hold |
-| Claim Confidence Score | Logistic Regression on combined feature vector | Lightweight, calibrated probability output, explainable coefficients | Weighted binary rule score (5 checks × 0.2) |
-
-Stack per microservice: Python 3.11, scikit-learn, XGBoost, Prophet, pandas, NumPy, FastAPI (serving layer), Joblib (model serialization).
-
-## External Data Feeds
-
-All external data feeds are **mocked** for the prototype. Each mock is a static JSON file served from the Next.js `/public` directory and read by the Trigger Monitoring Engine. The mock schema exactly mirrors what a real API would return, so swapping to a live feed requires only a URL change.
-
-| Feed | Mock approach | Real-world equivalent (future) |
-| --- | --- | --- |
-| Weather / rainfall | Static JSON: hourly rainfall mm per zone, updated by test harness | Open-Meteo free tier (no API key, 10,000 calls/day) |
-| AQI / pollution | Static JSON: hourly AQI per zone | CPCB open data API or IQAir free tier |
-| Heat stress | Derived from mocked weather JSON (temperature + humidity → heat index formula) | Same Open-Meteo feed |
-| Platform ops | Static JSON: order volume index per zone per hour | Mocked; real integration requires platform partnership |
-
-## Maps / Geofencing — Leaflet + OpenStreetMap
-
-**Leaflet.js** with **OpenStreetMap** tiles is used for all map rendering (zone selection during onboarding, trigger zone visualization on the admin dashboard, and geofence overlap checks).
-
-Chosen because: completely free, no API key required, no usage limits, tiles served from OSM CDN, and Leaflet's polygon/circle intersection API handles geofence overlap checks client-side without a backend call. Geofence definitions (zone boundaries as GeoJSON) are stored in Firestore and cached in the PWA service worker.
-
-For production, the geofencing overlap computation moves to a Cloud Function using the `@turf/turf` library for server-side validation to prevent client-side manipulation.
-
-## Payments — Razorpay Test Mode
-
-**Razorpay** in test mode is used for all payment simulation. The Razorpay test environment supports the full UPI payment flow (UPI ID entry → simulated bank confirmation → webhook callback) without real money movement. Test credentials are set in Vercel environment variables; the payout simulation Cloud Function calls Razorpay's `/payouts` API in test mode and records the response in Firestore.
-
-No real banking integration, no RBI compliance overhead for the prototype. The webhook handler (a Firebase Cloud Function) receives Razorpay's test callback and updates the claim's payout status in real time, which the worker sees on their dashboard within seconds.
-
-## Deployment — Vercel (only)
-
-The Next.js PWA (frontend + API routes) deploys to **Vercel**. All backend logic that must run server-side (auth-gated API routes, webhook handlers) runs as Vercel Serverless Functions within the same Next.js project — no separate Express server.
-
-Firebase (Firestore, Auth, Cloud Functions, FCM) and Upstash Redis are external managed services that Vercel functions call over HTTPS. The Python AI microservices run on Render's free tier and are called by Firebase Cloud Functions.
-
-Deployment summary:
-
-| Layer | Host |
-| --- | --- |
-| Next.js PWA + API routes | Vercel |
-| Firestore + Auth + FCM | Firebase (Google) |
-| Serverless trigger logic | Firebase Cloud Functions |
-| AI model microservices | Render (free tier) |
-| Redis (rate limit + queue) | Upstash (free tier) |
-| File storage | Cloudflare R2 (free tier) |
+**Push notifications:** Firebase Cloud Messaging (FCM) via the PWA’s service worker — handles trigger alerts ("Heavy rain detected in your zone — claim auto-initiated"), payout status updates, and weekly renewal reminders on Android and desktop without a native app.
 
 ---
+
+### Backend — Firebase + Vercel API Routes
+
+**Responsibility split:**
+
+| Concern | Runs on | Why |
+|--------|--------|-----|
+| Client-facing API (auth-gated data fetching, presigned upload URLs, webhook ingress from Razorpay) | Vercel Serverless Functions (Next.js API routes) | Co-located with the frontend, sub-100ms cold starts, same deployment pipeline |
+| Background event processing (Firestore-triggered claims orchestration, fraud pipeline, payout calls, trigger monitoring) | Firebase Cloud Functions (Node.js) | Firestore triggers are native to Firebase; no polling needed. Functions scale to zero. |
+
+**Auth:** Firebase Authentication with phone/OTP sign-in. OTP is the only viable onboarding flow for gig workers who may not have a Google account. Firebase handles OTP delivery, session tokens, and the refresh cycle natively — no custom auth server required.
+
+**Database:** Firestore (NoSQL, real-time). Collections map directly to the data model: `workers`, `policies`, `claims`, `triggerEvents`, `fraudSignals`, `payouts`. Firestore’s real-time listeners power the worker dashboard’s live claim status without polling. Offline persistence is enabled client-side so the worker app reads cached Firestore data when offline.
+
+**File / photo storage:** Cloudflare R2 — chosen over Firebase Storage because R2’s free tier includes 10 GB storage and zero egress fees (Firebase Storage charges for downloads). Workers upload onboarding photos (ID, profile) and any optional claim evidence. A presigned URL is issued by a Next.js API route on Vercel; the PWA uploads directly from the browser to R2, keeping server functions out of the upload data path.
+
+---
+
+### Caching / Job Queues — Redis (Upstash)
+
+Upstash Redis (serverless Redis, HTTP-based API) serves two purposes:
+
+1. **Rate limiting** — the OTP endpoint and claim submission endpoint are rate-limited per phone number and IP to prevent abuse (sliding window algorithm via `@upstash/ratelimit`).
+2. **Lightweight job queue** — the weekly premium recalculation batch enqueues worker IDs into a Redis list; a scheduled Cloud Function dequeues and recomputes premiums in batches.
+
+Upstash’s free tier covers 10,000 commands/day — sufficient for the prototype. No Redis server to manage; Upstash is accessed over HTTPS from both Vercel API routes and Cloud Functions.
+
+---
+
+### AI / ML Models
+
+All models run as Python microservices deployed on Render (free tier, spun up on demand) and called from Firebase Cloud Functions via HTTP.
+
+| Module | Primary Model | Why | Fallback |
+|--------|--------------|-----|----------|
+| Premium Engine | XGBoost (scikit-learn pipeline) | Best accuracy on tabular rider + zone features; built-in feature importance for explainability | Deterministic multiplier table (city x zone x shift tier) |
+| Disruption Forecasting | Facebook Prophet | Handles weekly seasonality and Indian monsoon cycles; trains on mocked historical JSON data. *Note: Prophet is in maintenance mode — NeuralProphet is the upgrade path for production.* | 4-week rolling average per city |
+| Fraud Detection | Isolation Forest (sklearn) + graph-based duplicate check (Firestore query) | Unsupervised, no labelled fraud data needed at launch | Hard-coded rule engine: speed > 80 km/h, emulator flag, or > 3 claims / 7 days → auto-hold |
+| Claim Confidence Score | Logistic Regression on combined feature vector | Lightweight, calibrated probability output, explainable coefficients | Weighted binary rule score (5 checks x 0.2 each) |
+
+**AI microservice stack:** Python 3.11, scikit-learn, XGBoost, Prophet, pandas, NumPy, FastAPI (serving layer), Joblib (model serialization), Uvicorn (ASGI server).
+
+---
+
+### External Data Feeds (Mocked for Prototype)
+
+All external data feeds are mocked for the prototype. Each mock is a static JSON file served from the Next.js `/public` directory and consumed by the Trigger Monitoring Engine (a scheduled Firebase Cloud Function). The mock schemas exactly mirror real API responses — swapping to a live feed requires only a URL and auth header change.
+
+| Feed | Mock Approach | Real-World Equivalent (Production) |
+|------|--------------|------------------------------------|
+| Weather / rainfall | Static JSON: hourly rainfall (mm) per zone, updatable via test harness | Open-Meteo free API (no key, 10,000 calls/day) or IMD API |
+| AQI / pollution | Static JSON: hourly AQI per zone | CPCB open data API or IQAir free tier |
+| Heat stress | Derived from mocked weather JSON (temperature + humidity → NOAA heat index formula) | Same Open-Meteo feed, computed server-side |
+| Platform ops disruption | Static JSON: order volume index per zone per hour | Mocked; real integration requires platform partnership (Zomato/Swiggy/Uber) |
+
+---
+
+### Maps & Geofencing — Google Maps Platform
+
+Google Maps Platform is used for all map rendering and geospatial functionality:
+
+- **Worker onboarding:** Zone selection via an interactive Google Map with pre-defined zone polygons overlay. Workers tap their operating zone; the selection is stored as a zone ID linked to a GeoJSON boundary in Firestore.
+- **Admin dashboard:** Trigger event visualization (heatmaps of claims by zone), active policy density maps, and zone-level risk overlays.
+- **Geofencing:** Zone boundary definitions are stored as GeoJSON in Firestore and cached in the PWA service worker. Client-side point-in-polygon checks use the Maps JavaScript API’s geometry library for real-time zone detection.
+
+**Why Google Maps over alternatives:**
+
+- Superior map detail and accuracy for Indian cities (critical for zone-level precision in Tier 2/3 cities).
+- Google Maps Platform provides a $200/month free credit — more than sufficient for prototype-scale usage (~28,000 dynamic map loads/month free).
+- Places API and Geocoding API enable address-to-zone resolution during onboarding.
+- Familiar UX for gig workers who already use Google Maps daily.
+
+**React integration:** `@vis.gl/react-google-maps` (Google’s official React wrapper for the Maps JavaScript API) — lightweight, hook-based, and actively maintained.
+
+**Production hardening:** For production, geofence overlap validation and point-in-polygon checks move server-side to a Cloud Function using `@turf/turf` to prevent client-side manipulation. The Google Maps API key is restricted by HTTP referrer (frontend) and IP (backend) in the Google Cloud Console.
+
+---
+
+### Payments — Razorpay Test Mode
+
+Razorpay in test mode simulates the full payout lifecycle. The Razorpay test environment supports the complete UPI payment flow (UPI ID entry → simulated bank confirmation → webhook callback) without real money movement.
+
+- Test credentials are stored in Vercel environment variables (never committed to the repo).
+- The payout simulation Cloud Function calls Razorpay’s `/payouts` API in test mode and records the response in Firestore.
+- The webhook handler (a Vercel API route at `/api/webhooks/razorpay`) receives Razorpay’s test callback, verifies the signature, and updates the claim’s payout status in real time — the worker sees "Paid" on their dashboard within seconds.
+
+No real banking integration or RBI compliance overhead for the prototype.
+
+---
+
+### Environment & Configuration
+
+- **Vercel environment variables** store all secrets: Firebase service account key, Razorpay test keys, Upstash Redis URL/token, Cloudflare R2 access keys, Google Maps API key, and Render microservice URLs.
+- **Firebase config** (client-side, non-secret) is embedded in the Next.js app via `NEXT_PUBLIC_` prefixed env vars.
+- `.env.example` is committed to the repo with placeholder values and descriptions for every variable — any reviewer can set up the project without guessing.
+
+---
+
+### Deployment Summary — Vercel-First
+
+| Layer | Host | Free Tier Coverage |
+|------|------|-------------------|
+| Next.js PWA + API routes | Vercel | 100 GB bandwidth, 100 hrs serverless |
+| Firestore + Auth + FCM | Firebase (Google) | Spark plan: 1 GiB storage, 50K reads/day |
+| Background trigger logic | Firebase Cloud Functions | 2M invocations/month |
+| AI model microservices | Render | 750 hrs/month (spins down on idle) |
+| Redis (rate limit + queue) | Upstash | 10K commands/day |
+| File storage (photos, docs) | Cloudflare R2 | 10 GB storage, zero egress |
+| Maps & geofencing | Google Maps Platform | $200/month free credit |
+| Payment simulation | Razorpay Test Mode | Unlimited test transactions |
 
 ## 18. Data Model Snapshot
 
