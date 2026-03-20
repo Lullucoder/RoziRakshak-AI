@@ -621,7 +621,7 @@ India's gig workers are on mid-range Android devices. A PWA install prompt requi
 
 ## 16. Proposed System Architecture
 
-```
+```mermaid
 flowchart LR
      A[Worker / Admin PWA — Next.js] --> B[Next.js API Routes / Firebase Functions]
      B --> C[Onboarding & Policy Service]
