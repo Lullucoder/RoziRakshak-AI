@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
@@ -16,6 +16,7 @@ import {
   Clock,
   IndianRupee,
 } from "lucide-react";
+import { LoginModal } from "@/components/LoginModal";
 
 const triggerTypes = [
   { icon: CloudRain, label: "Heavy Rain", color: "#3b82f6", desc: "Flooding & waterlogging" },
@@ -65,8 +66,11 @@ const fadeUp = {
 };
 
 export default function LandingPage() {
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+
   return (
     <div className="min-h-screen">
+      <LoginModal isOpen={isLoginModalOpen} onOpenChange={setIsLoginModalOpen} />
       {/* Navbar */}
       <nav className="fixed top-0 w-full z-50 glass">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
@@ -78,12 +82,12 @@ export default function LandingPage() {
               RoziRakshak <span className="text-primary-light">AI</span>
             </span>
           </div>
-          <Link
-            href="/worker/dashboard"
+          <button
+            onClick={() => setIsLoginModalOpen(true)}
             className="px-5 py-2.5 rounded-full bg-gradient-to-r from-[#6c5ce7] to-[#a855f7] text-white text-sm font-semibold hover:opacity-90 transition-opacity"
           >
             Get Started
-          </Link>
+          </button>
         </div>
       </nav>
 
@@ -135,14 +139,14 @@ export default function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.3 }}
           >
-            <Link
-              href="/worker/dashboard"
+            <button
+              onClick={() => setIsLoginModalOpen(true)}
               id="hero-cta"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-gradient-to-r from-[#6c5ce7] to-[#a855f7] text-white font-semibold text-lg hover:opacity-90 transition-all pulse-glow"
             >
               Start Protection
               <ArrowRight className="w-5 h-5" />
-            </Link>
+            </button>
             <a
               href="#how-it-works"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full border border-border text-foreground font-semibold text-lg hover:bg-secondary transition-colors"
@@ -343,16 +347,16 @@ export default function LandingPage() {
                     <span>Ideal for: {plan.ideal}</span>
                   </div>
                 </div>
-                <Link
-                  href="/worker/dashboard"
-                  className={`block text-center py-3 rounded-xl font-semibold transition-all ${
+                <button
+                  onClick={() => setIsLoginModalOpen(true)}
+                  className={`w-full text-center py-3 rounded-xl font-semibold transition-all ${
                     plan.popular
                       ? "bg-gradient-to-r from-[#6c5ce7] to-[#a855f7] text-white hover:opacity-90"
                       : "border border-border text-foreground hover:bg-secondary"
                   }`}
                 >
                   Get {plan.name}
-                </Link>
+                </button>
               </motion.div>
             ))}
           </div>
@@ -376,13 +380,13 @@ export default function LandingPage() {
             Join thousands of riders who never have to worry about losing income
             to external disruptions again.
           </p>
-          <Link
-            href="/worker/dashboard"
+          <button
+            onClick={() => setIsLoginModalOpen(true)}
             className="inline-flex items-center gap-2 px-10 py-4 rounded-full bg-white text-[#0a0a12] font-bold text-lg hover:bg-gray-100 transition-colors"
           >
             Start in 2 Minutes
             <ArrowRight className="w-5 h-5" />
-          </Link>
+          </button>
         </div>
       </section>
 

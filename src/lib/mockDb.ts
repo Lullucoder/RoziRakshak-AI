@@ -7,9 +7,11 @@ export interface MockUser {
   role: "worker" | "admin";
 }
 
+export const DEMO_OTP = "123456";
+
 // ── Local mock user database ──────────────────────────────────────────────────
 // Any phone number works for login. Role is chosen on the login screen.
-// OTP: any 6 digits accepted (demo mode).
+// OTP: fixed demo OTP (123456).
 
 export const MOCK_USERS: Record<"worker" | "admin", MockUser> = {
   worker: {

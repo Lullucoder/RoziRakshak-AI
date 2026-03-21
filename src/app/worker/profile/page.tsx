@@ -19,10 +19,11 @@ import {
 import toast from "react-hot-toast";
 
 export default function ProfilePage() {
-  const { userProfile } = useAuth();
+  const { userProfile, signOut } = useAuth();
   const router = useRouter();
 
   const handleSignOut = () => {
+    signOut();
     toast.success("Signed out successfully");
     router.push("/");
   };

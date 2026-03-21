@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
@@ -11,8 +11,10 @@ import {
   Activity,
   Sliders,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  LogOut,
 } from "lucide-react";
+import toast from "react-hot-toast";
 
 // Adjusted Nav Items to match the vibe while keeping functionality
 const navItems = [
@@ -26,7 +28,13 @@ const navItems = [
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const handleSignOut = () => {
+    toast.success("Signed out successfully");
+    router.push("/");
+  };
 
   return (
     <div className="min-h-screen bg-background flex text-foreground">
@@ -51,6 +59,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <nav className="flex-1 space-y-2 overflow-y-auto no-scrollbar">
           {navItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== "#" && pathname.startsWith(item.href) && item.href !== "/admin/dashboard");
+            const isDisabled = item.href === "#";
+
+            if (isDisabled) {
+              return (
+                <button
+                  key={item.label}
+                  onClick={() => toast("Coming soon! 🚧", { icon: "⏳" })}
+                  className={`flex items-center gap-4 rounded-2xl text-[13px] font-medium transition-all group w-full ${
+                    isCollapsed ? 'justify-center p-3' : 'px-4 py-3'
+                  } text-muted-foreground hover:text-foreground hover:bg-card`}
+                  title={isCollapsed ? item.label : undefined}
+                >
+                  <item.icon className="w-5 h-5 flex-shrink-0" />
+                  {!isCollapsed && <span className="whitespace-nowrap">{item.label}</span>}
+                </button>
+              );
+            }
+
             return (
               <Link
                 key={item.label}
@@ -71,8 +97,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           })}
         </nav>
 
-        {/* Collapse Toggle Button */}
-        <div className="mt-4 pt-4 border-t border-sidebar-border/50 flex justify-center">
+        {/* Sign Out Button */}
+        <div className="mt-4 pt-4 border-t border-sidebar-border/50 space-y-2">
+          <button
+            onClick={handleSignOut}
+            className={`flex items-center gap-4 rounded-2xl text-[13px] font-medium transition-all w-full ${
+              isCollapsed ? 'justify-center p-3' : 'px-4 py-3'
+            } text-destructive hover:bg-[rgba(239,68,68,0.1)]`}
+            title={isCollapsed ? "Sign Out" : undefined}
+          >
+            <LogOut className="w-5 h-5 flex-shrink-0" />
+            {!isCollapsed && <span className="whitespace-nowrap">Sign Out</span>}
+          </button>
+
+          {/* Collapse Toggle Button */}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
             className={`flex items-center justify-center p-2 rounded-xl text-muted-foreground hover:bg-card hover:text-foreground transition-all ${!isCollapsed && 'w-full gap-2'}`}
