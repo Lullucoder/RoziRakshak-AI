@@ -279,7 +279,7 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
                     ))}
                   </div>
                   <p className="text-xs text-muted-foreground text-center mt-3">
-                    Demo mode — enter any 6 digits
+                    <span className="gradient-text font-semibold">Demo mode</span> — enter any 6 digits
                   </p>
                 </div>
 
