@@ -1,307 +1,154 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { Shield, Phone, KeyRound, ArrowRight, Loader2, HardHat, ShieldCheck } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { DEMO_OTP } from "@/lib/mockDb";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import toast from "react-hot-toast";
 
-type Step = "role" | "phone" | "otp";
-type Role = "worker" | "admin";
-
 export default function LoginPage() {
-  const [step, setStep] = useState<Step>("role");
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
-  const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const { user, loading, sendOtp, verifyOtp } = useAuth();
+  const [phone, setPhone] = useState("");
+  const [role, setRole] = useState<"worker" | "admin">("worker");
+  const [otp, setOtp] = useState("");
+  const [otpRequestedFor, setOtpRequestedFor] = useState<string | null>(null);
 
-  const handleRoleSelect = (role: Role) => {
-    setSelectedRole(role);
-    setStep("phone");
-  };
+  const phoneDisplay = useMemo(() => {
+    if (!otpRequestedFor) {
+      return "";
+    }
 
-  const handleSendOTP = async () => {
-    if (phone.length < 10) {
-      toast.error("Please enter a valid 10-digit phone number");
+    const cleaned = otpRequestedFor.trim();
+    if (cleaned.length <= 4) {
+      return cleaned;
+    }
+
+    return `${"*".repeat(Math.max(0, cleaned.length - 4))}${cleaned.slice(-4)}`;
+  }, [otpRequestedFor]);
+
+  useEffect(() => {
+    if (!user) {
       return;
     }
-    setLoading(true);
-    try {
-      // Simulate OTP send (demo mode)
-      await new Promise((res) => setTimeout(res, 800));
-      setStep("otp");
-      toast.success("OTP sent successfully!");
-    } catch {
-      toast.error("Failed to send OTP");
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleVerifyOTP = async () => {
-    const code = otp.join("");
-    if (code.length !== 6) {
-      toast.error("Please enter a valid 6-digit OTP");
+    router.replace(user.role === "admin" ? "/admin/dashboard" : "/worker/dashboard");
+  }, [router, user]);
+
+  const handleSendOtp = async (event: FormEvent) => {
+    event.preventDefault();
+
+    if (!phone.trim()) {
+      toast.error("Enter phone number first");
       return;
     }
-    setLoading(true);
+
     try {
-      // Simulate OTP verify (demo mode)
-      await new Promise((res) => setTimeout(res, 800));
-      toast.success("Verified successfully!");
-      if (selectedRole === "admin") {
-        router.push("/admin/dashboard");
-      } else {
-        router.push("/worker/dashboard");
-      }
-    } catch {
-      toast.error("Invalid OTP");
-    } finally {
-      setLoading(false);
+      await sendOtp(phone, role);
+      setOtp("");
+      setOtpRequestedFor(phone);
+      toast.success("Demo OTP sent");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send OTP");
     }
   };
 
-  const handleOtpChange = (index: number, value: string) => {
-    if (value.length > 1) value = value.slice(-1);
-    if (!/^\d*$/.test(value)) return;
-    const newOtp = [...otp];
-    newOtp[index] = value;
-    setOtp(newOtp);
-    if (value && index < 5) {
-      otpRefs.current[index + 1]?.focus();
-    }
-  };
+  const handleVerifyOtp = async (event: FormEvent) => {
+    event.preventDefault();
 
-  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === "Backspace" && !otp[index] && index > 0) {
-      otpRefs.current[index - 1]?.focus();
+    if (!otp.trim()) {
+      toast.error("Enter OTP");
+      return;
     }
-  };
 
-  const getSubtitle = () => {
-    if (step === "role") return "Choose how you want to sign in";
-    if (step === "phone")
-      return `Signing in as ${selectedRole === "admin" ? "Admin" : "Worker"} — enter your phone number`;
-    return "Enter the 6-digit OTP sent to your phone";
+    try {
+      await verifyOtp(otp);
+      toast.success("Login successful");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to verify OTP");
+    }
   };
 
   return (
-    <div className="min-h-screen animated-gradient flex items-center justify-center px-4 relative overflow-hidden">
-      {/* Background blobs */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/3 left-1/4 w-80 h-80 bg-[#6c5ce7] rounded-full opacity-10 blur-[100px]" />
-        <div className="absolute bottom-1/3 right-1/4 w-80 h-80 bg-[#ec4899] rounded-full opacity-10 blur-[100px]" />
-      </div>
-
-      <motion.div
-        className="relative z-10 w-full max-w-md"
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-      >
-        <div className="glass rounded-3xl p-8 sm:p-10">
-          {/* Logo */}
-          <div className="flex justify-center mb-6">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#6c5ce7] to-[#ec4899] flex items-center justify-center animate-float">
-              <Shield className="w-9 h-9 text-white" />
+    <div className="min-h-screen flex items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(108,92,231,0.25),_transparent_45%),radial-gradient(circle_at_bottom,_rgba(236,72,153,0.18),_transparent_45%),#14141e] px-4">
+      <Card className="w-full max-w-md border-border/70 bg-card/90 backdrop-blur">
+        <CardHeader>
+          <CardTitle className="text-2xl font-semibold">Demo OTP Login</CardTitle>
+          <CardDescription>
+            Hackathon demo mode. Enter any phone number and use OTP <span className="font-semibold text-foreground">{DEMO_OTP}</span>.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <form className="space-y-4" onSubmit={handleSendOtp}>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone Number</Label>
+              <Input
+                id="phone"
+                inputMode="numeric"
+                placeholder="e.g. 9876543210"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                disabled={loading}
+              />
             </div>
-          </div>
 
-          <h1
-            className="text-2xl font-bold text-center mb-2"
-            style={{ fontFamily: "var(--font-outfit)" }}
-          >
-            Welcome to <span className="gradient-text">RoziRakshak</span>
-          </h1>
-          <p className="text-center text-muted-foreground text-sm mb-8">
-            {getSubtitle()}
-          </p>
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={role === "worker" ? "default" : "outline"}
+                  onClick={() => setRole("worker")}
+                  disabled={loading}
+                >
+                  Worker
+                </Button>
+                <Button
+                  type="button"
+                  variant={role === "admin" ? "default" : "outline"}
+                  onClick={() => setRole("admin")}
+                  disabled={loading}
+                >
+                  Admin
+                </Button>
+              </div>
+            </div>
 
-          <AnimatePresence mode="wait">
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Sending OTP..." : "Send OTP"}
+            </Button>
+          </form>
 
-            {/* — STEP 1: Role Selection — */}
-            {step === "role" && (
-              <motion.div
-                key="role"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Worker Card */}
-                  <button
-                    id="worker-login-btn"
-                    onClick={() => handleRoleSelect("worker")}
-                    className="group flex flex-col items-center gap-3 p-6 rounded-2xl border border-border bg-muted hover:border-[#6c5ce7] hover:bg-[#6c5ce7]/10 transition-all duration-300 cursor-pointer"
-                  >
-                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#6c5ce7] to-[#a855f7] flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                      <HardHat className="w-7 h-7 text-white" />
-                    </div>
-                    <div className="text-center">
-                      <p className="font-semibold text-foreground text-sm">Worker</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Field access</p>
-                    </div>
-                  </button>
+          <form className="space-y-3" onSubmit={handleVerifyOtp}>
+            <div className="space-y-2">
+              <Label htmlFor="otp">Enter OTP</Label>
+              <Input
+                id="otp"
+                maxLength={6}
+                inputMode="numeric"
+                placeholder="6-digit OTP"
+                value={otp}
+                onChange={(event) => setOtp(event.target.value)}
+                disabled={loading || !otpRequestedFor}
+              />
+            </div>
 
-                  {/* Admin Card */}
-                  <button
-                    id="admin-login-btn"
-                    onClick={() => handleRoleSelect("admin")}
-                    className="group flex flex-col items-center gap-3 p-6 rounded-2xl border border-border bg-muted hover:border-[#ec4899] hover:bg-[#ec4899]/10 transition-all duration-300 cursor-pointer"
-                  >
-                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#ec4899] to-[#f43f5e] flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                      <ShieldCheck className="w-7 h-7 text-white" />
-                    </div>
-                    <div className="text-center">
-                      <p className="font-semibold text-foreground text-sm">Admin</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Full control</p>
-                    </div>
-                  </button>
-                </div>
-
-                <p className="text-center text-xs text-muted-foreground mt-6">
-                  Select your role to continue with phone verification
-                </p>
-              </motion.div>
+            {otpRequestedFor ? (
+              <p className="text-xs text-muted-foreground">OTP requested for {phoneDisplay}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">Request OTP first</p>
             )}
 
-            {/* — STEP 2: Phone Number — */}
-            {step === "phone" && (
-              <motion.div
-                key="phone"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.3 }}
-              >
-                {/* Selected role indicator */}
-                <div
-                  className={`flex items-center gap-2 mb-5 px-3 py-2 rounded-xl text-sm font-medium w-fit mx-auto ${
-                    selectedRole === "admin"
-                      ? "bg-[#ec4899]/10 text-[#ec4899] border border-[#ec4899]/30"
-                      : "bg-[#6c5ce7]/10 text-[#6c5ce7] border border-[#6c5ce7]/30"
-                  }`}
-                >
-                  {selectedRole === "admin"
-                    ? <ShieldCheck className="w-4 h-4" />
-                    : <HardHat className="w-4 h-4" />
-                  }
-                  {selectedRole === "admin" ? "Admin Login" : "Worker Login"}
-                </div>
-
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">
-                    Phone Number
-                  </label>
-                  <div className="flex items-center gap-2 p-3 rounded-xl bg-muted border border-border focus-within:border-primary transition-colors">
-                    <Phone className="w-5 h-5 text-muted-foreground" />
-                    <span className="text-muted-foreground font-medium">+91</span>
-                    <input
-                      id="phone-input"
-                      type="tel"
-                      maxLength={10}
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
-                      placeholder="9876543210"
-                      className="flex-1 bg-transparent outline-none text-foreground placeholder-muted-foreground"
-                      autoFocus
-                    />
-                  </div>
-                </div>
-
-                <button
-                  id="send-otp-btn"
-                  onClick={handleSendOTP}
-                  disabled={loading || phone.length < 10}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#6c5ce7] to-[#a855f7] text-white font-semibold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <>Send OTP <ArrowRight className="w-5 h-5" /></>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => {
-                    setStep("role");
-                    setPhone("");
-                    setSelectedRole(null);
-                  }}
-                  className="w-full mt-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  ← Change Role
-                </button>
-              </motion.div>
-            )}
-
-            {/* — STEP 3: OTP Verification — */}
-            {step === "otp" && (
-              <motion.div
-                key="otp"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-muted-foreground mb-4">
-                    <KeyRound className="w-4 h-4 inline mr-1" />
-                    Verification Code
-                  </label>
-                  <div className="flex justify-center gap-3">
-                    {otp.map((digit, i) => (
-                      <input
-                        key={i}
-                        ref={(el) => { otpRefs.current[i] = el; }}
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={1}
-                        value={digit}
-                        onChange={(e) => handleOtpChange(i, e.target.value)}
-                        onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                        className="w-12 h-14 rounded-xl bg-muted border border-border text-center text-xl font-bold text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
-                        autoFocus={i === 0}
-                      />
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground text-center mt-3">
-                    <span className="gradient-text font-semibold">Demo mode</span> — enter any 6 digits
-                  </p>
-                </div>
-
-                <button
-                  id="verify-otp-btn"
-                  onClick={handleVerifyOTP}
-                  disabled={loading || otp.join("").length !== 6}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#6c5ce7] to-[#a855f7] text-white font-semibold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <>Verify & Continue <ArrowRight className="w-5 h-5" /></>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => {
-                    setStep("phone");
-                    setOtp(["", "", "", "", "", ""]);
-                  }}
-                  className="w-full mt-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  ← Change Phone Number
-                </button>
-              </motion.div>
-            )}
-
-          </AnimatePresence>
-        </div>
-      </motion.div>
+            <Button type="submit" className="w-full" disabled={loading || !otpRequestedFor}>
+              {loading ? "Verifying..." : "Verify OTP & Login"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }
