@@ -1,0 +1,137 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper Functions ──────────────────────────────────────────────────
+
+    /// True when the request comes from an authenticated user.
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    /// True when the authenticated user's UID matches the given workerId.
+    function isOwner(workerId) {
+      return isAuthenticated() && request.auth.uid == workerId;
+    }
+
+    /// True when the authenticated user has role "admin" in their workers doc.
+    /// Reads the role directly from Firestore — no custom claims required.
+    function isAdmin() {
+      return isAuthenticated()
+        && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.role == "admin";
+    }
+
+    /// Convenience: true if user is admin OR owns the resource.
+    function isAdminOrOwner(workerId) {
+      return isOwner(workerId) || isAdmin();
+    }
+
+    // ── workers ───────────────────────────────────────────────────────────
+    // Workers can read/write their own document.
+    // Admins can read any worker document.
+    match /workers/{workerId} {
+      allow read:    if isAdminOrOwner(workerId);
+      allow create:  if isOwner(workerId);
+      allow update:  if isOwner(workerId);
+      allow delete:  if false;   // Never delete from client
+    }
+
+    // ── policies ──────────────────────────────────────────────────────────
+    // Workers can read their own policies and create new ones.
+    // Admins can read all policies.
+    match /policies/{policyId} {
+      allow read:    if isAuthenticated()
+                     && (isAdmin() || resource.data.workerId == request.auth.uid);
+      allow create:  if isAuthenticated()
+                     && request.resource.data.workerId == request.auth.uid;
+      allow update:  if isAdmin();
+      allow delete:  if false;
+    }
+
+    // ── weeklyCoverages ───────────────────────────────────────────────────
+    // Workers can read their own coverages.
+    // Admins can read all coverages.
+    match /weeklyCoverages/{coverageId} {
+      allow read:    if isAuthenticated()
+                     && (isAdmin() || resource.data.workerId == request.auth.uid);
+      allow create:  if isAuthenticated()
+                     && request.resource.data.workerId == request.auth.uid;
+      allow update:  if isAdmin();
+      allow delete:  if false;
+    }
+
+    // ── claims ────────────────────────────────────────────────────────────
+    // Workers can read their own claims but CANNOT create or update.
+    // Claims are created by the system (server-side / Cloud Functions).
+    // Admins can read all and update status.
+    match /claims/{claimId} {
+      allow read:    if isAuthenticated()
+                     && (isAdmin() || resource.data.workerId == request.auth.uid);
+      allow create:  if isAdmin();
+      allow update:  if isAdmin();
+      allow delete:  if false;
+    }
+
+    // ── payouts ───────────────────────────────────────────────────────────
+    // Workers can read their own payouts — NO public write access.
+    // Admins can read all. Payouts are created server-side only.
+    match /payouts/{payoutId} {
+      allow read:    if isAuthenticated()
+                     && (isAdmin() || resource.data.workerId == request.auth.uid);
+      allow create:  if isAdmin();
+      allow update:  if isAdmin();
+      allow delete:  if false;
+    }
+
+    // ── triggerEvents ─────────────────────────────────────────────────────
+    // Any authenticated user can read (public trigger feed).
+    // Only admins (or server) can write.
+    match /triggerEvents/{eventId} {
+      allow read:    if isAuthenticated();
+      allow create:  if isAdmin();
+      allow update:  if isAdmin();
+      allow delete:  if false;
+    }
+
+    // ── riskScores ────────────────────────────────────────────────────────
+    // Workers can read their own risk scores.
+    // Admins can read all. Scores are written server-side.
+    match /riskScores/{scoreId} {
+      allow read:    if isAuthenticated()
+                     && (isAdmin() || resource.data.workerId == request.auth.uid);
+      allow create:  if isAdmin();
+      allow update:  if isAdmin();
+      allow delete:  if false;
+    }
+
+    // ── fraudSignals ──────────────────────────────────────────────────────
+    // Only admins can read or write. Workers have NO access.
+    match /fraudSignals/{signalId} {
+      allow read:    if isAdmin();
+      allow create:  if isAdmin();
+      allow update:  if isAdmin();
+      allow delete:  if false;
+    }
+
+    // ── zones ─────────────────────────────────────────────────────────────
+    // Any authenticated user can read zones.
+    // Only admins can write.
+    match /zones/{zoneId} {
+      allow read:    if isAuthenticated();
+      allow create:  if isAdmin();
+      allow update:  if isAdmin();
+      allow delete:  if false;
+    }
+
+    // ── platformActivityFeeds ─────────────────────────────────────────────
+    // Any authenticated user can read feed data.
+    // Only admins (or server ingestion) can write.
+    match /platformActivityFeeds/{feedId} {
+      allow read:    if isAuthenticated();
+      allow create:  if isAdmin();
+      allow update:  if isAdmin();
+      allow delete:  if false;
+    }
+  }
+}
