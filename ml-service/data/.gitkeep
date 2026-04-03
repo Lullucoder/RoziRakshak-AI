@@ -1,0 +1,2 @@
+# This directory will contain generated synthetic CSV files
+# Data files are gitignored and regenerated via synthetic_data.py

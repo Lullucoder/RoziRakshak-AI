@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "trained_at": "2026-04-03T19:23:09.589725",
+  "rmse": 2.4351922004998388,
+  "n_train_samples": 800,
+  "n_test_samples": 200,
+  "top_features": {
+    "declared_weekly_income_slab": 0.8891998529434204,
+    "city_tier": 0.051196809858083725,
+    "forecasted_disruption_probability": 0.019511748105287552,
+    "shift_start_hour": 0.01687474362552166,
+    "claim_count_last_4_weeks": 0.009755905717611313
+  }
+}

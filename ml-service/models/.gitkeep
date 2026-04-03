@@ -1,0 +1,2 @@
+# This directory will contain serialized model files (.joblib)
+# Models are gitignored and regenerated locally via training scripts

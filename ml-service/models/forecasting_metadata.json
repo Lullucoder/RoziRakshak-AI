@@ -1,0 +1,43 @@
+{
+  "version": "v1",
+  "trained_at": "2026-04-03T19:43:43.205065",
+  "zones": {
+    "zone_001": {
+      "trained": true,
+      "n_samples": 180,
+      "mae": 0.23076060280847654,
+      "last_training_date": "2026-04-04T00:00:00"
+    },
+    "zone_002": {
+      "trained": true,
+      "n_samples": 180,
+      "mae": NaN,
+      "last_training_date": "2026-04-04T00:00:00"
+    },
+    "zone_003": {
+      "trained": true,
+      "n_samples": 180,
+      "mae": NaN,
+      "last_training_date": "2026-04-04T00:00:00"
+    },
+    "zone_004": {
+      "trained": true,
+      "n_samples": 180,
+      "mae": NaN,
+      "last_training_date": "2026-04-04T00:00:00"
+    },
+    "zone_005": {
+      "trained": true,
+      "n_samples": 180,
+      "mae": NaN,
+      "last_training_date": "2026-04-04T00:00:00"
+    },
+    "zone_006": {
+      "trained": true,
+      "n_samples": 180,
+      "mae": NaN,
+      "last_training_date": "2026-04-04T00:00:00"
+    }
+  },
+  "n_zones": 6
+}
