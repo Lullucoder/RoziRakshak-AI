@@ -435,7 +435,6 @@ export default function OnboardingPage() {
       await createWorker({
         uid:                workerUid,
         phone:
-              user?.phone ||
               (user as { providerData?: Array<{ phoneNumber?: string | null }> } | null)
                 ?.providerData?.[0]?.phoneNumber ||
               userProfile?.phone ||
