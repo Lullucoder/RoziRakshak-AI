@@ -73,9 +73,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     login(pendingLogin.role, pendingLogin.phone);
     setPendingLogin(null);
     setLoading(false);
+    const resolvedPhone =
+      pendingLogin.phone ||
+      // Safety fallback matching Firebase providerData pattern
+      MOCK_USERS[pendingLogin.role].phone ||
+      "";
     return {
       ...MOCK_USERS[pendingLogin.role],
-      phone: pendingLogin.phone,
+      phone: resolvedPhone,
     };
   };
 

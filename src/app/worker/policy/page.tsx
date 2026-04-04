@@ -2,8 +2,12 @@
 
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { CheckCircle, Shield, Zap, ArrowRight } from "lucide-react";
+import { CheckCircle, Shield, Zap, ArrowRight, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
+import { createPolicy, getActivePolicyByWorker } from "@/lib/firestore";
+import { serverTimestamp } from "firebase/firestore";
 
 const plans = [
   {
@@ -36,16 +40,77 @@ const plans = [
   },
 ];
 
-export default function PolicyPage() {
-  const [activePlan] = useState("core");
-  const [buying, setBuying] = useState<string | null>(null);
+const PLAN_VALUES: Record<string, { premiumInr: number; maxWeeklyProtectionInr: number }> = {
+  lite: { premiumInr: 29, maxWeeklyProtectionInr: 800 },
+  core: { premiumInr: 49, maxWeeklyProtectionInr: 1500 },
+  peak: { premiumInr: 79, maxWeeklyProtectionInr: 2500 },
+};
 
-  const handleBuy = (planId: string) => {
-    setBuying(planId);
-    setTimeout(() => {
-      setBuying(null);
-      toast.success(`${planId.charAt(0).toUpperCase() + planId.slice(1)} plan activated for this week! 🎉`);
-    }, 1500);
+export default function PolicyPage() {
+  const router = useRouter();
+  const { user, userProfile } = useAuth();
+  const [activePlan] = useState("core");
+  const [buying, setBuying] = useState(false);
+  const [buyingPlanId, setBuyingPlanId] = useState<string | null>(null);
+
+  const handleBuy = async (planId: string) => {
+    // a. Guard checks
+    if (!user || !userProfile) {
+      toast.error("Please log in first");
+      return;
+    }
+    if (!userProfile.upiId) {
+      toast.error("Please complete your profile with a UPI ID first");
+      return;
+    }
+
+    // b. Set loading state
+    setBuying(true);
+    setBuyingPlanId(planId);
+
+    try {
+      // c. Check for existing active policy
+      const existingPolicy = await getActivePolicyByWorker(user.uid);
+      if (existingPolicy) {
+        toast.error("You already have an active policy this week");
+        setBuying(false);
+        setBuyingPlanId(null);
+        return;
+      }
+
+      // d. Compute coverage dates (week start = now, week end = +7 days)
+      const weekStartDate = new Date();
+      const weekEndDate = new Date();
+      weekEndDate.setDate(weekEndDate.getDate() + 7);
+
+      // e. Map plan id to PlanTier (lowercase) and look up values
+      const planName = planId.toLowerCase() as "lite" | "core" | "peak";
+      const planValues = PLAN_VALUES[planName];
+
+      // f. Create the policy document in Firestore (field names match the Policy type)
+      await createPolicy({
+        workerId:      user.uid,
+        plan:          planName,
+        premium:       planValues.premiumInr,
+        maxProtection: planValues.maxWeeklyProtectionInr,
+        weekStart:     weekStartDate.toISOString(),
+        weekEnd:       weekEndDate.toISOString(),
+        status:        "active",
+        triggers:      ["heavy_rain", "extreme_heat", "hazardous_aqi", "zone_closure", "platform_outage"],
+      });
+
+      // g. Success
+      toast.success("Policy activated! You are protected this week.");
+      router.push("/worker/dashboard");
+    } catch (error) {
+      // h. Error
+      toast.error("Failed to activate policy. Please try again.");
+      console.error(error);
+    } finally {
+      // i. Reset loading
+      setBuying(false);
+      setBuyingPlanId(null);
+    }
   };
 
   return (
@@ -109,17 +174,17 @@ export default function PolicyPage() {
 
             <button
               onClick={() => handleBuy(plan.id)}
-              disabled={buying !== null}
+              disabled={buying}
               className={`w-full py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all ${
                 activePlan === plan.id
                   ? "bg-muted border border-border text-muted-foreground cursor-default"
                   : "bg-gradient-to-r from-[#6c5ce7] to-[#a855f7] text-white hover:opacity-90"
               }`}
             >
-              {buying === plan.id ? (
+              {buying && buyingPlanId === plan.id ? (
                 <>
-                  <Zap className="w-4 h-4 animate-spin" />
-                  Processing...
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Activating...
                 </>
               ) : activePlan === plan.id ? (
                 "Current Plan"

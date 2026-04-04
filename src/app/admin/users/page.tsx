@@ -11,6 +11,7 @@ const DL_GREEN = "#217346";
 interface Worker {
   uid: string;
   name: string;
+  phone: string;
   city: string;
   zone: string;
   platform: string;
@@ -24,32 +25,32 @@ interface Worker {
 
 const workers: Worker[] = [
   {
-    uid: "w_001", name: "Arjun K.", city: "Bengaluru", zone: "Koramangala",
+    uid: "w_001", name: "Arjun K.", phone: "+91 98765 43210", city: "Bengaluru", zone: "Koramangala",
     platform: "Zepto", trustScore: 0.91, plan: "Core", claims: 3,
     joined: "15 Jan 2026", aadhaar_verified: true, face_verified: true,
   },
   {
-    uid: "w_002", name: "Priya S.", city: "Delhi", zone: "Connaught Place",
+    uid: "w_002", name: "Priya S.", phone: "+91 91234 56789", city: "Delhi", zone: "Connaught Place",
     platform: "Blinkit", trustScore: 0.85, plan: "Peak", claims: 2,
     joined: "01 Feb 2026", aadhaar_verified: true, face_verified: true,
   },
   {
-    uid: "w_003", name: "Rahul M.", city: "Delhi", zone: "Anand Vihar",
+    uid: "w_003", name: "Rahul M.", phone: "+91 87654 32109", city: "Delhi", zone: "Anand Vihar",
     platform: "Instamart", trustScore: 0.72, plan: "Core", claims: 5,
     joined: "20 Jan 2026", aadhaar_verified: false, face_verified: false,
   },
   {
-    uid: "w_004", name: "Deepak V.", city: "Bengaluru", zone: "Indiranagar",
+    uid: "w_004", name: "Deepak V.", phone: "+91 99887 76655", city: "Bengaluru", zone: "Indiranagar",
     platform: "BigBasket Now", trustScore: 0.88, plan: "Lite", claims: 1,
     joined: "10 Feb 2026", aadhaar_verified: true, face_verified: true,
   },
   {
-    uid: "w_005", name: "Suresh P.", city: "Bengaluru", zone: "HSR Layout",
+    uid: "w_005", name: "Suresh P.", phone: "+91 77665 54433", city: "Bengaluru", zone: "HSR Layout",
     platform: "Zepto", trustScore: 0.45, plan: "Core", claims: 7,
     joined: "25 Jan 2026", aadhaar_verified: false, face_verified: false,
   },
   {
-    uid: "w_006", name: "Meena R.", city: "Mumbai", zone: "Bandra West",
+    uid: "w_006", name: "Meena R.", phone: "+91 93344 55667", city: "Mumbai", zone: "Bandra West",
     platform: "Blinkit", trustScore: 0.93, plan: "Peak", claims: 1,
     joined: "05 Feb 2026", aadhaar_verified: true, face_verified: true,
   },
@@ -354,6 +355,10 @@ export default function UsersPage() {
               <div className="bg-muted rounded-lg p-2.5">
                 <p className="text-[10px] text-muted-foreground">Claims</p>
                 <p className="text-xs font-medium">{worker.claims}</p>
+              </div>
+              <div className="bg-muted rounded-lg p-2.5">
+                <p className="text-[10px] text-muted-foreground">Phone</p>
+                <p className="text-xs font-medium">{worker.phone || "—"}</p>
               </div>
               <div className="bg-muted rounded-lg p-2.5">
                 <p className="text-[10px] text-muted-foreground">Trust</p>

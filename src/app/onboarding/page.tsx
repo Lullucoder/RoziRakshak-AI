@@ -19,6 +19,7 @@ import type { AadhaarVerificationResult } from "@/components/onboarding/AadhaarV
 import { FaceVerificationStep } from "@/components/onboarding/FaceVerificationStep";
 import type { FaceVerificationResult } from "@/components/onboarding/FaceVerificationStep";
 import { createWorker } from "@/lib/firestore";
+import { useAuth } from "@/contexts/AuthContext";
 import toast from "react-hot-toast";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -388,6 +389,7 @@ function SubmittingScreen({ success }: { success: boolean }) {
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { user, userProfile } = useAuth();
   const [step, setStep]     = useState<OnboardingStep>("aadhaar");
   const [aadhaarResult, setAadhaarResult] = useState<AadhaarVerificationResult | null>(null);
   const [personal, setPersonal] = useState<PersonalDetails>({ name: "", city: "", platform: "" });
@@ -432,7 +434,12 @@ export default function OnboardingPage() {
 
       await createWorker({
         uid:                workerUid,
-        phone:              "",
+        phone:
+              user?.phone ||
+              (user as { providerData?: Array<{ phoneNumber?: string | null }> } | null)
+                ?.providerData?.[0]?.phoneNumber ||
+              userProfile?.phone ||
+              "",
         name:               personal.name,
         city:               personal.city,
         platform:           personal.platform,

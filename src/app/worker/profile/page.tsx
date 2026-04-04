@@ -27,7 +27,7 @@ import { useWorkerTheme } from "../layout";
 const DL_GREEN = "#217346";
 
 export default function ProfilePage() {
-  const { userProfile, signOut } = useAuth();
+  const { userProfile, user, signOut } = useAuth();
   const { theme, setTheme } = useWorkerTheme();
   const router = useRouter();
 
@@ -53,7 +53,14 @@ export default function ProfilePage() {
   };
 
   const items = [
-    { icon: Phone,     label: "Phone",        value: profileData.phone },
+    {
+      icon: Phone,
+      label: "Phone",
+      value:
+        profileData.phone ||
+        (user as { phoneNumber?: string | null } | null)?.phoneNumber ||
+        "Not available",
+    },
     { icon: MapPin,    label: "City & Zone",   value: `${profileData.city}, ${profileData.zone}` },
     { icon: Briefcase, label: "Platform",      value: profileData.platform },
     { icon: Clock,     label: "Working Hours", value: profileData.workingHours },
