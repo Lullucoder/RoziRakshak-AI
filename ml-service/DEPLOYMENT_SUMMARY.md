@@ -33,9 +33,14 @@ All 4 AI modules have been successfully implemented, trained, and tested:
 
 ### Render Configuration
 
+**Python Version:**
+```bash
+3.11.11 (from .python-version)
+```
+
 **Build Command:**
 ```bash
-pip install -r requirements.txt && python scripts/train_all.py
+pip install -r requirements.txt
 ```
 
 **Start Command:**
@@ -142,6 +147,7 @@ ml-service/
 ├── confidence_scorer.py       ✓ Module 4
 ├── synthetic_data.py          ✓ Data generation
 ├── requirements.txt           ✓ Dependencies
+├── .python-version            ✓ Pins Python 3.11.11 for Render
 ├── Dockerfile                 ✓ Container config
 ├── .env.example               ✓ Environment template
 ├── RENDER_DEPLOYMENT.md       ✓ Deployment guide

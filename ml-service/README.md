@@ -181,6 +181,7 @@ git push origin main
      - **Branch:** `main`
      - **Root Directory:** `ml-service`
      - **Runtime:** Python 3
+     - **Python Version:** 3.11.x (auto-pinned by `ml-service/.python-version`)
      - **Build Command:** `pip install -r requirements.txt`
      - **Start Command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
 

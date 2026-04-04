@@ -26,16 +26,22 @@ git push origin main
 - **Branch**: `main`
 - **Root Directory**: `ml-service`
 - **Runtime**: `Python 3`
+- **Python Version**: pinned by `ml-service/.python-version` to `3.11.11`
 
 **Build & Deploy:**
 - **Build Command**: 
   ```
-  pip install -r requirements.txt && python scripts/train_all.py
+  pip install -r requirements.txt
   ```
 - **Start Command**: 
   ```
   uvicorn main:app --host 0.0.0.0 --port $PORT
   ```
+
+Optional (slower) build command if you want to retrain models on every deploy:
+```
+pip install -r requirements.txt && python scripts/train_all.py
+```
 
 **Instance Type:**
 - Free tier works for development
@@ -64,10 +70,10 @@ CONFIDENCE_MODEL_VERSION=v1
 
 1. Click "Create Web Service"
 2. Render will:
-   - Install dependencies from requirements.txt
-   - Run `scripts/train_all.py` to train all 4 models
-   - Start the FastAPI server with uvicorn
-3. Wait for deployment to complete (~5-10 minutes for first deploy)
+  - Install dependencies from requirements.txt
+  - Use pre-trained models committed in `ml-service/models/`
+  - Start the FastAPI server with uvicorn
+3. Wait for deployment to complete (~3-8 minutes for first deploy)
 
 ### 5. Verify Deployment
 
@@ -148,6 +154,12 @@ Render provides:
   - Pre-training models locally
   - Committing trained models to repo
   - Removing training from build command
+
+### Dependency Build Fails on pandas/scikit-learn/prophet
+- This usually means Render picked an unsupported Python version (for example, 3.14).
+- Keep `Root Directory` set to `ml-service` so Render reads `ml-service/.python-version`.
+- Confirm build logs show Python 3.11.x.
+- If needed, set `PYTHON_VERSION=3.11.11` in Render environment variables as an override.
 
 ### CORS Issues
 - Update `ALLOWED_ORIGINS` environment variable
