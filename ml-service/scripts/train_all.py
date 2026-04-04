@@ -20,6 +20,72 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _is_truthy_env(var_name: str, default: bool = False) -> bool:
+    """Parse boolean-like environment variables."""
+    raw = os.getenv(var_name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _has_required_model_artifacts(models_dir: Path) -> bool:
+    """Return True when all core model artifacts needed by the API are present."""
+    required_files = [
+        "premium_model.joblib",
+        "premium_model_metadata.json",
+        "forecasting_metadata.json",
+        "fraud_v1.joblib",
+        "fraud_v1_metadata.json",
+        "confidence_v1.joblib",
+        "confidence_v1_metadata.json",
+    ]
+
+    missing = [name for name in required_files if not (models_dir / name).exists()]
+    prophet_models = list(models_dir.glob("prophet_zone_*.joblib"))
+
+    if missing:
+        logger.info(f"Missing model artifacts: {missing}")
+        return False
+
+    if not prophet_models:
+        logger.info("No Prophet zone models found (expected files matching prophet_zone_*.joblib)")
+        return False
+
+    return True
+
+
+def _ensure_training_data(data_dir: Path) -> dict:
+    """Create any missing training datasets and return their paths."""
+    datasets = {
+        "rider_profiles": data_dir / "rider_profiles.csv",
+        "disruption_history": data_dir / "disruption_history.csv",
+        "claim_signals": data_dir / "claim_signals.csv",
+    }
+
+    missing = [name for name, path in datasets.items() if not path.exists()]
+    if not missing:
+        logger.info("All required datasets already exist. Skipping synthetic data generation.")
+        return {name: str(path) for name, path in datasets.items()}
+
+    logger.info(f"Generating missing datasets: {missing}")
+
+    import synthetic_data
+
+    if "rider_profiles" in missing:
+        synthetic_data.generate_rider_profiles(n_records=1000, output_dir=str(data_dir))
+    if "disruption_history" in missing:
+        synthetic_data.generate_disruption_history(n_zones=6, n_days=180, output_dir=str(data_dir))
+    if "claim_signals" in missing:
+        synthetic_data.generate_claim_signals(n_records=500, output_dir=str(data_dir))
+
+    still_missing = [name for name, path in datasets.items() if not path.exists()]
+    if still_missing:
+        raise FileNotFoundError(f"Dataset generation incomplete. Missing files: {still_missing}")
+
+    logger.info("✓ Synthetic data generation complete")
+    return {name: str(path) for name, path in datasets.items()}
+
+
 def main():
     """Train all 4 models in sequence"""
     start_time = time.time()
@@ -36,8 +102,21 @@ def main():
     logger.info(f"Working directory: {os.getcwd()}")
     
     # Create necessary directories
-    os.makedirs("data", exist_ok=True)
-    os.makedirs("models", exist_ok=True)
+    data_dir = Path("data")
+    models_dir = Path("models")
+    data_dir.mkdir(exist_ok=True)
+    models_dir.mkdir(exist_ok=True)
+
+    # Skip retraining on deploy when model artifacts are already committed.
+    # Set TRAIN_MODELS_ON_BUILD=true to force full retraining.
+    force_retrain = _is_truthy_env("TRAIN_MODELS_ON_BUILD", default=False)
+    if not force_retrain and _has_required_model_artifacts(models_dir):
+        print("\n" + "-"*70)
+        print("Pre-trained model artifacts detected. Skipping retraining.")
+        print("Set TRAIN_MODELS_ON_BUILD=true to force retraining during build.")
+        print("-"*70 + "\n")
+        logger.info("Using existing model artifacts from ./models")
+        return 0
     
     training_results = {}
     
@@ -49,8 +128,7 @@ def main():
     print("-"*70)
     
     try:
-        import synthetic_data
-        logger.info("✓ Synthetic data generation complete")
+        dataset_paths = _ensure_training_data(data_dir)
         training_results['data_generation'] = 'success'
     except Exception as e:
         logger.error(f"✗ Synthetic data generation failed: {e}")
@@ -67,8 +145,8 @@ def main():
     try:
         from premium_engine import train_premium_model
         metadata = train_premium_model(
-            data_path="./data/rider_profiles.csv",
-            models_dir="./models"
+            data_path=dataset_paths["rider_profiles"],
+            models_dir=str(models_dir)
         )
         training_results['premium_engine'] = {
             'status': 'success',
@@ -91,8 +169,8 @@ def main():
     try:
         from forecasting import train_forecasting_models
         metadata = train_forecasting_models(
-            data_path="./data/disruption_history.csv",
-            models_dir="./models"
+            data_path=dataset_paths["disruption_history"],
+            models_dir=str(models_dir)
         )
         training_results['forecasting_engine'] = {
             'status': 'success',
@@ -115,8 +193,8 @@ def main():
     try:
         from fraud_detector import train_fraud_model
         metadata = train_fraud_model(
-            data_path="./data/claim_signals.csv",
-            models_dir="./models"
+            data_path=dataset_paths["claim_signals"],
+            models_dir=str(models_dir)
         )
         training_results['fraud_detector'] = {
             'status': 'success',
@@ -139,8 +217,8 @@ def main():
     try:
         from confidence_scorer import train_confidence_model
         metadata = train_confidence_model(
-            data_path="./data/claim_signals.csv",
-            models_dir="./models"
+            data_path=dataset_paths["claim_signals"],
+            models_dir=str(models_dir)
         )
         training_results['confidence_scorer'] = {
             'status': 'success',
