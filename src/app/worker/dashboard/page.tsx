@@ -207,8 +207,8 @@ function getAlertMessage(alert: TriggerAlertDoc): string {
     alert.type === "heavy_rain" || alert.type === "extreme_heat" || alert.type === "hazardous_aqi"
       ? " — claim auto-initiated"
       : alert.type === "zone_closure"
-      ? " — deliveries suspended"
-      : " — orders may be affected";
+        ? " — deliveries suspended"
+        : " — orders may be affected";
 
   return meta.message + suffix;
 }
@@ -591,9 +591,8 @@ function AutoClaimCard({ workerId }: { workerId: string }) {
                       <React.Fragment key={step.label}>
                         <div className="flex flex-col items-center gap-1 flex-1">
                           <div
-                            className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
-                              isCurrent ? "ring-2 ring-offset-1 ring-offset-background" : ""
-                            }`}
+                            className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${isCurrent ? "ring-2 ring-offset-1 ring-offset-background" : ""
+                              }`}
                             style={{
                               backgroundColor: isCompleted || isCurrent ? `${stepColor}18` : "rgba(255,255,255,0.05)",
                               borderColor: stepColor,
@@ -731,13 +730,12 @@ export default function WorkerDashboard() {
               </div>
               <span className="text-[10px] font-medium">{t.label}</span>
               <div
-                className={`w-2 h-2 rounded-full ${
-                  t.status === "active"
+                className={`w-2 h-2 rounded-full ${t.status === "active"
                     ? "bg-[#3b82f6] animate-pulse"
                     : t.status === "warning"
-                    ? "bg-[#f59e0b] animate-pulse"
-                    : "bg-accent"
-                }`}
+                      ? "bg-[#f59e0b] animate-pulse"
+                      : "bg-accent"
+                  }`}
               />
             </div>
           ))}
