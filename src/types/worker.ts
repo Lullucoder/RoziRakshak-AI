@@ -67,4 +67,18 @@ export interface WorkerProfile extends BaseDocument {
 
   /** Date the worker first registered. */
   joinedDate: FirestoreTimestamp;
+
+  // ─── KYC / Identity ────────────────────────────────────────────────────────
+
+  /** Whether Aadhaar KYC was completed during onboarding. */
+  aadhaar_verified?: boolean;
+
+  /** Masked Aadhaar number, e.g. "XXXX-XXXX-3421". Never stores full number. */
+  aadhaar_masked?: string;
+
+  /** Timestamp when Aadhaar verification was completed. */
+  aadhaar_verified_at?: FirestoreTimestamp;
+
+  /** Which KYC method was used. */
+  kyc_method?: "digilocker_mock";
 }
