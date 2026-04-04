@@ -4,87 +4,99 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Reference UI Deep Purple/Dark Theme */
-  --background: #14141e;
-  --foreground: #f8f9fa;
-  
-  --card: #1c1d29;
-  --card-foreground: #f8f9fa;
-  
-  --popover: #1c1d29;
-  --popover-foreground: #f8f9fa;
-  
-  --primary: #8b5cf6; /* Vibrant Purple */
+  /* ── Light Mode (default) ── */
+  --background: #f8f9fd;
+  --foreground: #0f0e1a;
+
+  --card: #ffffff;
+  --card-foreground: #0f0e1a;
+
+  --popover: #ffffff;
+  --popover-foreground: #0f0e1a;
+
+  --primary: #7c3aed; /* Vibrant Purple — accessible on white */
   --primary-foreground: #ffffff;
-  
-  --secondary: #27293d;
-  --secondary-foreground: #e2e8f0;
-  
-  --muted: #27293d;
-  --muted-foreground: #8b8d9b; /* Subtle grey text */
-  
-  --accent: #27293d;
+
+  --secondary: #f1f0fb;
+  --secondary-foreground: #1e1b4b;
+
+  --muted: #f1f0fb;
+  --muted-foreground: #6b7280;
+
+  --accent: #7c3aed;
   --accent-foreground: #ffffff;
-  
-  --destructive: #ef4444;
+
+  --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  
-  --border: #2d2e3f; /* Soft divider */
-  --input: #2d2e3f;
-  --ring: #8b5cf6;
-  
-  --radius: 1rem; /* Rounded reference styling */
-  
-  /* Custom Gradients */
+
+  --border: #e4e4f0;
+  --input: #e4e4f0;
+  --ring: #7c3aed;
+
+  --radius: 1rem;
+
+  /* Custom Gradients — same brand colours */
   --gradient-start: #6c5ce7;
   --gradient-mid: #a855f7;
   --gradient-end: #ec4899;
-  --warning: #f59e0b;
-  
-  /* Reference Charts - Neon Vibe */
-  --chart-1: #9d4edd;
-  --chart-2: #c77dff;
-  --chart-3: #e0aaff;
+  --warning: #d97706;
+
+  /* Charts */
+  --chart-1: #7c3aed;
+  --chart-2: #a855f7;
+  --chart-3: #c084fc;
   --chart-4: #f72585;
   --chart-5: #3a0ca3;
-  
+
   /* Sidebar */
-  --sidebar: #171822;
-  --sidebar-foreground: #8b8d9b;
-  --sidebar-primary: #8b5cf6;
+  --sidebar: #f1f0fb;
+  --sidebar-foreground: #4b5563;
+  --sidebar-primary: #7c3aed;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #27293d;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #2d2e3f;
-  --sidebar-ring: #8b5cf6;
+  --sidebar-accent: #ede9fe;
+  --sidebar-accent-foreground: #1e1b4b;
+  --sidebar-border: #e4e4f0;
+  --sidebar-ring: #7c3aed;
 }
 
 .dark {
-  /* Enforcing the same deep theme in explicit dark mode */
+  /* ── Dark Mode (deep purple/dark theme) ── */
   --background: #14141e;
   --foreground: #f8f9fa;
+
   --card: #1c1d29;
   --card-foreground: #f8f9fa;
+
   --popover: #1c1d29;
   --popover-foreground: #f8f9fa;
+
   --primary: #8b5cf6;
   --primary-foreground: #ffffff;
+
   --secondary: #27293d;
   --secondary-foreground: #e2e8f0;
+
   --muted: #27293d;
   --muted-foreground: #8b8d9b;
-  --accent: #27293d;
+
+  --accent: #8b5cf6;
   --accent-foreground: #ffffff;
+
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
+
   --border: #2d2e3f;
   --input: #2d2e3f;
   --ring: #8b5cf6;
+
+  --warning: #f59e0b;
+
   --chart-1: #9d4edd;
   --chart-2: #c77dff;
   --chart-3: #e0aaff;
   --chart-4: #f72585;
   --chart-5: #3a0ca3;
+
   --sidebar: #171822;
   --sidebar-foreground: #8b8d9b;
   --sidebar-primary: #8b5cf6;
@@ -144,12 +156,16 @@
   }
 }
 
-/* Glassmorphism & Custom Glow Utilities - Adapted to new theme */
+/* Glassmorphism — adapts to both light and dark */
 .glass {
   background: var(--card);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+
+.dark .glass {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }
 
@@ -168,6 +184,51 @@
 
 .neon-glow {
   box-shadow: 0 0 20px rgba(139, 92, 246, 0.4), inset 0 0 10px rgba(139, 92, 246, 0.2);
+}
+
+/* ── Status badge classes — used in Worker Claims & Dashboard ── */
+.status-approved {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+.dark .status-approved {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.status-reviewing {
+  background: rgba(234, 179, 8, 0.12);
+  color: #b45309;
+  border: 1px solid rgba(234, 179, 8, 0.25);
+}
+.dark .status-reviewing {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+  border-color: rgba(234, 179, 8, 0.3);
+}
+
+.status-held {
+  background: rgba(249, 115, 22, 0.12);
+  color: #c2410c;
+  border: 1px solid rgba(249, 115, 22, 0.25);
+}
+.dark .status-held {
+  background: rgba(249, 115, 22, 0.15);
+  color: #f97316;
+  border-color: rgba(249, 115, 22, 0.3);
+}
+
+.status-denied {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+.dark .status-denied {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 /* Base resets */
@@ -230,4 +291,112 @@
 
 @utility zoom-out-95 {
   --tw-exit-scale: 0.95;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WORKER PORTAL — Sunlight / Outdoor Readability
+   All rules scoped to .worker-portal so admin is never affected.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Light mode overrides (default when .worker-portal has no .dark) ── */
+.worker-portal {
+  /* White page background maximises contrast in direct sunlight */
+  --background: #ffffff;
+  --card: #ffffff;
+  --card-foreground: #18181b; /* zinc-900 */
+  --foreground: #18181b;      /* zinc-900 */
+  --muted-foreground: #3f3f46; /* zinc-700 — never lighter than this */
+  --border: #d4d4d8;           /* zinc-300 stronger card borders */
+  --input: #a1a1aa;            /* zinc-400 on focus */
+}
+
+/* Body text — zinc-900 */
+.worker-portal p,
+.worker-portal span,
+.worker-portal li {
+  color: inherit;
+}
+
+/* Secondary / helper text — minimum zinc-700 */
+.worker-portal .text-muted-foreground {
+  color: #3f3f46 !important; /* zinc-700 */
+}
+
+/* Headings — zinc-900 */
+.worker-portal h1,
+.worker-portal h2,
+.worker-portal h3 {
+  color: #18181b; /* zinc-900 */
+}
+
+/* Cards — white bg with zinc-300 border */
+.worker-portal .glass {
+  background: #ffffff;
+  border-color: #d4d4d8; /* zinc-300 */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Larger tap targets — gloves / wet hands */
+.worker-portal button:not([class*="h-"]) {
+  min-height: 48px;
+}
+.worker-portal input,
+.worker-portal select,
+.worker-portal textarea {
+  min-height: 48px;
+}
+
+/* Bottom nav items — 56px min height */
+.worker-portal nav a {
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Primary CTA buttons — blue-700 (high contrast in sunlight, not washed out) */
+.worker-portal .btn-primary,
+.worker-portal button[data-primary] {
+  background-color: #1d4ed8; /* blue-700 */
+  color: #ffffff;
+}
+.worker-portal .btn-primary:hover,
+.worker-portal button[data-primary]:hover {
+  background-color: #1e40af; /* blue-800 */
+}
+
+/* Input focus — zinc-400 border */
+.worker-portal input:focus,
+.worker-portal select:focus,
+.worker-portal textarea:focus {
+  border-color: #a1a1aa; /* zinc-400 */
+  outline-color: #a1a1aa;
+}
+
+/* ── Dark mode — restore normal dark theme within worker portal ── */
+.worker-portal.dark {
+  --background: #14141e;
+  --foreground: #f8f9fa;
+  --card: #1c1d29;
+  --card-foreground: #f8f9fa;
+  --muted-foreground: #8b8d9b;
+  --border: #2d2e3f;
+  --input: #2d2e3f;
+}
+
+.worker-portal.dark .text-muted-foreground {
+  color: #8b8d9b !important;
+}
+
+.worker-portal.dark h1,
+.worker-portal.dark h2,
+.worker-portal.dark h3 {
+  color: #f8f9fa;
+}
+
+.worker-portal.dark .glass {
+  background: #1c1d29;
+  border-color: #2d2e3f;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }

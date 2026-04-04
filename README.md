@@ -1317,3 +1317,49 @@ If low-confidence patterns repeat, the system triggers a lightweight KYC re-chec
 ---
 
 This balanced structure ensures genuine workers get fast payouts, while still protecting the system from coordinated fraud. Instead of turning uncertainty into frustration, it turns it into a transparent and reassuring experience — making the hardest part of fraud defense the strongest trust feature of the product.
+
+---
+
+## KYC & Identity Verification
+
+Aadhaar verification is currently implemented as a simulated DigiLocker flow for prototype purposes. Production deployment would use the official DigiLocker Partner API, which requires entity registration with MeitY (Ministry of Electronics & Information Technology). The mock flow mirrors the exact UX of a real DigiLocker OAuth redirect including consent collection, masked Aadhaar display, and timestamp recording.
+
+### How the prototype flow works
+
+The onboarding wizard includes an Aadhaar verification step powered by the `AadhaarVerification` component (`src/components/onboarding/AadhaarVerification.tsx`). The flow has three screens:
+
+1. **Entry screen** — The worker enters their 12-digit Aadhaar number. Input is masked in real time: only the last 4 digits remain visible (e.g. `XXXX-XXXX-3421`), matching UIDAI's display standard. The worker must tick a consent checkbox citing UIDAI guidelines before the verify button activates.
+
+2. **Redirect simulation** — A 2.5-second animated screen mimics the DigiLocker OAuth redirect, cycling through three stages: *Connecting to DigiLocker → Fetching your Aadhaar details → Verification successful*. A progress bar and stage indicator animate across all three stages.
+
+3. **Success screen** — A spring-animated green checkmark confirms identity. The masked Aadhaar, verification date, and method (`DigiLocker`) are displayed.
+
+### What gets written to Firestore
+
+KYC data is held in local onboarding state until the final submit. On completion, the worker document receives:
+
+| Field | Value |
+|-------|-------|
+| `aadhaar_verified` | `true` |
+| `aadhaar_masked` | `"XXXX-XXXX-{last4}"` — never the full number |
+| `aadhaar_verified_at` | `serverTimestamp()` |
+| `kyc_method` | `"digilocker_mock"` |
+
+Workers who skip Aadhaar verification receive `aadhaar_verified: false` and may have limited access to certain features.
+
+### UI surfaces
+
+- **Worker profile page** — A green `KYC Verified` badge and `BadgeCheck` icon appear next to the worker's name. A detail card shows the masked Aadhaar, verification date, and method.
+- **Admin users page** — Each worker card includes a full-width KYC row: green (`Aadhaar Verified`) or red (`Not Verified`). Filter pills at the top allow instant segmentation by KYC status.
+
+### Path to production
+
+In production, this flow would be replaced with:
+
+1. Entity registration with MeitY as a DigiLocker Technology Partner.
+2. OAuth 2.0 integration with the DigiLocker API gateway.
+3. Server-side exchange of the authorization code for an access token.
+4. Fetching the eAadhaar XML from DigiLocker's document pull API.
+5. UIDAI-compliant storage: only the masked number and verification timestamp are retained; the full Aadhaar number is never stored.
+
+The mock and production flows are intentionally designed to share the same UI component and data schema, minimizing the engineering delta for a real DigiLocker integration.

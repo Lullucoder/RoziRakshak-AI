@@ -1,408 +1,551 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { useAuth } from "@/contexts/AuthContext";
-import { updateWorker } from "@/lib/firestore";
-import { serverTimestamp } from "firebase/firestore";
 import {
   Shield,
   User,
-  MapPin,
   Briefcase,
-  Clock,
-  Wallet,
-  Loader2,
+  Camera,
+  CheckCircle2,
   ArrowRight,
+  ArrowLeft,
+  ChevronDown,
 } from "lucide-react";
+import { serverTimestamp } from "firebase/firestore";
+import { AadhaarVerification } from "@/components/onboarding/AadhaarVerification";
+import type { AadhaarVerificationResult } from "@/components/onboarding/AadhaarVerification";
+import { FaceVerificationStep } from "@/components/onboarding/FaceVerificationStep";
+import type { FaceVerificationResult } from "@/components/onboarding/FaceVerificationStep";
+import { createWorker } from "@/lib/firestore";
+import { useAuth } from "@/contexts/AuthContext";
 import toast from "react-hot-toast";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type OnboardingStep = "aadhaar" | "personal" | "work" | "face" | "submitting";
+
+interface PersonalDetails {
+  name: string;
+  city: string;
+  platform: string;
+}
+
+interface WorkDetails {
+  zone: string;
+  workingHours: string;
+  weeklyEarningRange: string;
+  upiId: string;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const PLATFORMS = [
+  "Zepto", "Blinkit", "Instamart", "BigBasket Now",
+  "Swiggy Instamart", "Dunzo", "Other",
+];
+const CITIES = [
+  "Bengaluru", "Delhi", "Mumbai", "Hyderabad",
+  "Chennai", "Pune", "Kolkata", "Ahmedabad",
+];
+const SHIFTS = [
+  { value: "morning", label: "Morning (6am–12pm)" },
+  { value: "afternoon", label: "Afternoon (12pm–6pm)" },
+  { value: "evening", label: "Evening (6pm–12am)" },
+  { value: "full_day", label: "Full Day" },
+];
+const EARNINGS = [
+  "₹2,000–₹4,000", "₹4,000–₹6,000",
+  "₹6,000–₹8,000", "₹8,000–₹12,000", "₹12,000+",
+];
+
+const STEP_META = [
+  { id: "aadhaar" as const,  label: "Identity",  Icon: Shield   },
+  { id: "personal" as const, label: "Personal",  Icon: User     },
+  { id: "work" as const,     label: "Work",      Icon: Briefcase },
+  { id: "face" as const,     label: "Face KYC",  Icon: Camera   },
+];
+
+const STEP_ORDER: OnboardingStep[] = ["aadhaar", "personal", "work", "face", "submitting"];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function StepBar({ current }: { current: OnboardingStep }) {
+  const idx = STEP_ORDER.indexOf(current);
+  return (
+    <div className="flex items-center w-full max-w-md mx-auto mb-8 px-1">
+      {STEP_META.map((step, i) => {
+        const done    = i < idx;
+        const active  = step.id === current;
+        return (
+          <React.Fragment key={step.id}>
+            <div className="flex flex-col items-center gap-1 shrink-0">
+              <motion.div
+                animate={{
+                  background: done
+                    ? "#217346"
+                    : active
+                    ? "var(--primary)"
+                    : "var(--muted)",
+                  scale: active ? 1.1 : 1,
+                }}
+                transition={{ duration: 0.25 }}
+                className="w-9 h-9 rounded-full flex items-center justify-center"
+                style={{ color: done || active ? "white" : "var(--muted-foreground)" }}
+              >
+                {done
+                  ? <CheckCircle2 className="w-5 h-5" />
+                  : <step.Icon className="w-4 h-4" />
+                }
+              </motion.div>
+              <span
+                className="text-[10px] font-medium transition-colors"
+                style={{ color: active ? "var(--foreground)" : "var(--muted-foreground)" }}
+              >
+                {step.label}
+              </span>
+            </div>
+            {i < STEP_META.length - 1 && (
+              <div
+                className="flex-1 h-0.5 mx-1 mb-4 rounded-full transition-all duration-400"
+                style={{ background: i < idx ? "#217346" : "var(--muted)" }}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Select helper ────────────────────────────────────────────────────────────
+
+function Select({
+  label, value, onChange, options, placeholder = "Select…", id,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  options: string[] | { value: string; label: string }[];
+  placeholder?: string; id?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-semibold text-foreground mb-1.5">{label}</label>
+      <div className="relative">
+        <select
+          id={id}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full appearance-none rounded-xl bg-muted border border-border px-4 py-3 text-sm text-foreground focus:outline-none focus:border-primary transition-colors pr-9"
+        >
+          <option value="" disabled>{placeholder}</option>
+          {options.map((opt) =>
+            typeof opt === "string"
+              ? <option key={opt} value={opt}>{opt}</option>
+              : <option key={opt.value} value={opt.value}>{opt.label}</option>
+          )}
+        </select>
+        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+      </div>
+    </div>
+  );
+}
+
+function TextInput({
+  label, value, onChange, placeholder, id, type = "text",
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; id?: string; type?: string;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-sm font-semibold text-foreground mb-1.5">{label}</label>
+      <input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-xl bg-muted border border-border px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+      />
+    </div>
+  );
+}
+
+// ─── Screen 2: Personal Details ───────────────────────────────────────────────
+
+function PersonalStep({
+  data, onChange, onNext, onBack,
+}: {
+  data: PersonalDetails;
+  onChange: (d: PersonalDetails) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const valid = data.name.trim().length >= 2 && data.city && data.platform;
+
+  return (
+    <motion.div
+      key="personal"
+      className="w-full max-w-md"
+      initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}
+      transition={{ duration: 0.3 }}
+    >
+      <div className="glass rounded-2xl p-6 space-y-5">
+        <div>
+          <h2 className="text-lg font-bold text-foreground">Personal Details</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Tell us a bit about yourself</p>
+        </div>
+
+        <TextInput
+          id="name-input"
+          label="Full Name"
+          value={data.name}
+          onChange={(v) => onChange({ ...data, name: v })}
+          placeholder="e.g. Arjun Kumar"
+        />
+
+        <Select
+          id="city-select"
+          label="City"
+          value={data.city}
+          onChange={(v) => onChange({ ...data, city: v })}
+          options={CITIES}
+          placeholder="Select your city"
+        />
+
+        <Select
+          id="platform-select"
+          label="Delivery Platform"
+          value={data.platform}
+          onChange={(v) => onChange({ ...data, platform: v })}
+          options={PLATFORMS}
+          placeholder="Select your platform"
+        />
+
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 transition-all"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back
+          </button>
+          <button
+            id="personal-next-btn"
+            disabled={!valid}
+            onClick={onNext}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
+            style={{
+              background: valid
+                ? "linear-gradient(135deg, var(--gradient-start), var(--gradient-mid))"
+                : "var(--muted)",
+              color: valid ? "white" : "var(--muted-foreground)",
+              cursor: valid ? "pointer" : "not-allowed",
+            }}
+          >
+            Continue <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Screen 3: Work Details ───────────────────────────────────────────────────
+
+function WorkStep({
+  data, onChange, onNext, onBack,
+}: {
+  data: WorkDetails;
+  onChange: (d: WorkDetails) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const valid =
+    data.zone.trim().length >= 2 &&
+    data.workingHours &&
+    data.weeklyEarningRange &&
+    data.upiId.trim().length >= 3;
+
+  return (
+    <motion.div
+      key="work"
+      className="w-full max-w-md"
+      initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}
+      transition={{ duration: 0.3 }}
+    >
+      <div className="glass rounded-2xl p-6 space-y-5">
+        <div>
+          <h2 className="text-lg font-bold text-foreground">Work Details</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Help us personalize your coverage</p>
+        </div>
+
+        <TextInput
+          id="zone-input"
+          label="Primary Delivery Zone"
+          value={data.zone}
+          onChange={(v) => onChange({ ...data, zone: v })}
+          placeholder="e.g. Koramangala, Indiranagar"
+        />
+
+        <Select
+          id="shift-select"
+          label="Typical Working Shift"
+          value={data.workingHours}
+          onChange={(v) => onChange({ ...data, workingHours: v })}
+          options={SHIFTS}
+        />
+
+        <Select
+          id="earnings-select"
+          label="Weekly Earning Range"
+          value={data.weeklyEarningRange}
+          onChange={(v) => onChange({ ...data, weeklyEarningRange: v })}
+          options={EARNINGS}
+          placeholder="Select earning range"
+        />
+
+        <TextInput
+          id="upi-input"
+          label="UPI ID (for payouts)"
+          value={data.upiId}
+          onChange={(v) => onChange({ ...data, upiId: v })}
+          placeholder="yourname@upi"
+          type="text"
+        />
+
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 transition-all"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back
+          </button>
+          <button
+            id="work-next-btn"
+            disabled={!valid}
+            onClick={onNext}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all"
+            style={{
+              background: valid
+                ? "linear-gradient(135deg, var(--gradient-start), var(--gradient-mid))"
+                : "var(--muted)",
+              color: valid ? "white" : "var(--muted-foreground)",
+              cursor: valid ? "pointer" : "not-allowed",
+            }}
+          >
+            Continue <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+
+
+// ─── Screen 5: Submitting ─────────────────────────────────────────────────────
+
+function SubmittingScreen({ success }: { success: boolean }) {
+  return (
+    <motion.div
+      key="submitting"
+      className="w-full max-w-md flex flex-col items-center text-center py-12"
+      initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.4 }}
+    >
+      {!success ? (
+        <>
+          <div className="relative mb-6">
+            <motion.div
+              className="w-20 h-20 rounded-full border-4 border-primary/20"
+              style={{ borderTopColor: "var(--primary)" }}
+              animate={{ rotate: 360 }}
+              transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }}
+            />
+            <Shield className="absolute inset-0 m-auto w-8 h-8 text-primary" />
+          </div>
+          <h2 className="text-lg font-bold text-foreground mb-2">Setting up your account…</h2>
+          <p className="text-sm text-muted-foreground">Securing your details. Just a moment.</p>
+        </>
+      ) : (
+        <>
+          <motion.div
+            initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }}
+            transition={{ type: "spring", stiffness: 260, damping: 20 }}
+            className="mb-6"
+          >
+            <CheckCircle2 className="w-20 h-20" style={{ color: "#217346" }} />
+          </motion.div>
+          <h2 className="text-xl font-bold text-foreground mb-1">Welcome aboard! 🎉</h2>
+          <p className="text-sm text-muted-foreground">Redirecting to your dashboard…</p>
+        </>
+      )}
+    </motion.div>
+  );
+}
+
+// ─── Main Onboarding Page ─────────────────────────────────────────────────────
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user, role, isOnboarded, loading } = useAuth();
-  const [submitting, setSubmitting] = useState(false);
-
-  const [formData, setFormData] = useState({
-    name: "",
-    city: "",
-    platform: "",
-    zone: "",
-    shiftStartTime: "",
-    shiftDuration: "",
-    weeklyEarningRange: "",
-    upiId: "",
+  const { user, userProfile } = useAuth();
+  const [step, setStep]     = useState<OnboardingStep>("aadhaar");
+  const [aadhaarResult, setAadhaarResult] = useState<AadhaarVerificationResult | null>(null);
+  const [personal, setPersonal] = useState<PersonalDetails>({ name: "", city: "", platform: "" });
+  const [work, setWork]         = useState<WorkDetails>({
+    zone: "", workingHours: "morning", weeklyEarningRange: "", upiId: "",
   });
+  const [faceResult, setFaceResult] = useState<FaceVerificationResult | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Deterministic demo uid — in production, read from the authenticated session
+  const workerUid = `worker-${Date.now()}`;
 
-  // Guard checks
-  useEffect(() => {
-    if (loading) return;
+  const handleAadhaarSuccess = useCallback((result: AadhaarVerificationResult) => {
+    setAadhaarResult(result);
+    setStep("personal");
+  }, []);
 
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
+  const handleAadhaarSkip = useCallback(() => {
+    setAadhaarResult(null);
+    setStep("personal");
+  }, []);
 
-    if (role === "admin") {
-      router.replace("/admin/dashboard");
-      return;
-    }
+  const handleFaceVerified = useCallback((result: FaceVerificationResult) => {
+    setFaceResult(result);
+    handleFinalSubmit(result);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aadhaarResult, personal, work]);
 
-    if (isOnboarded) {
-      router.replace("/worker/dashboard");
-      return;
-    }
-  }, [user, role, isOnboarded, loading, router]);
-
-  const validateForm = () => {
-    const newErrors: Record<string, string> = {};
-
-    if (!formData.name.trim()) {
-      newErrors.name = "Full name is required";
-    }
-
-    if (!formData.city) {
-      newErrors.city = "Please select a city";
-    }
-
-    if (!formData.platform) {
-      newErrors.platform = "Please select a platform";
-    }
-
-    if (!formData.zone.trim()) {
-      newErrors.zone = "Working zone is required";
-    }
-
-    if (!formData.shiftStartTime) {
-      newErrors.shiftStartTime = "Please select shift start time";
-    }
-
-    if (!formData.shiftDuration) {
-      newErrors.shiftDuration = "Please select shift duration";
-    }
-
-    if (!formData.weeklyEarningRange) {
-      newErrors.weeklyEarningRange = "Please select income range";
-    }
-
-    if (!formData.upiId.trim()) {
-      newErrors.upiId = "UPI ID is required";
-    } else if (!formData.upiId.includes("@")) {
-      newErrors.upiId = "UPI ID must contain @ symbol";
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validateForm()) {
-      toast.error("Please fix the errors in the form");
-      return;
-    }
-
-    if (!user) {
-      toast.error("User not found");
-      return;
-    }
-
-    setSubmitting(true);
-
+  async function handleFinalSubmit(face: FaceVerificationResult) {
+    setStep("submitting");
     try {
-      await updateWorker(user.uid, {
-        name: formData.name,
-        city: formData.city,
-        platform: formData.platform,
-        zone: formData.zone,
-        workingHours: `${formData.shiftStartTime} (${formData.shiftDuration}h)`,
-        weeklyEarningRange: formData.weeklyEarningRange,
-        upiId: formData.upiId,
-        isOnboarded: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const kycFields: Record<string, any> = {};
+      if (aadhaarResult) {
+        kycFields.aadhaar_verified     = aadhaarResult.verified;
+        kycFields.aadhaar_masked       = aadhaarResult.maskedAadhaar;
+        kycFields.aadhaar_verified_at  = serverTimestamp();
+        kycFields.kyc_method           = aadhaarResult.method;
+      } else {
+        kycFields.aadhaar_verified = false;
+      }
+
+      await createWorker({
+        uid:                workerUid,
+        phone:
+              user?.phone ||
+              (user as { providerData?: Array<{ phoneNumber?: string | null }> } | null)
+                ?.providerData?.[0]?.phoneNumber ||
+              userProfile?.phone ||
+              "",
+        name:               personal.name,
+        city:               personal.city,
+        platform:           personal.platform,
+        zone:               work.zone,
+        workingHours:       work.workingHours,
+        weeklyEarningRange: work.weeklyEarningRange,
+        upiId:              work.upiId,
+        role:               "worker",
+        isOnboarded:        true,
+        trustScore:         aadhaarResult?.verified ? 0.85 : 0.75,
+        activePlan:         null,
+        claimsCount:        0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        joinedDate:         serverTimestamp() as any,
+        // ── Face liveness fields ──
+        face_verified:        true,
+        face_image_r2_key:    face.r2Key,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        face_verified_at:     serverTimestamp() as any,
+        liveness_check_passed: true,
+        ...kycFields,
       });
 
-      toast.success("Welcome to RoziRakshak!");
-      router.replace("/worker/dashboard");
-    } catch (error) {
-      console.error("Onboarding error:", error);
-      toast.error("Failed to save profile. Please try again.");
-      setSubmitting(false);
+      setSubmitSuccess(true);
+      toast.success("Onboarding complete! Welcome to RoziRakshak AI.");
+      setTimeout(() => router.push("/worker/dashboard"), 1800);
+    } catch (err) {
+      console.error("Onboarding submit error:", err);
+      toast.error("Something went wrong. Please try again.");
+      setStep("face");
     }
-  };
-
-  // Show spinner while loading or redirecting
-  if (loading || !user || role === "admin" || isOnboarded) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-8 h-8 text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground animate-pulse">Loading…</p>
-        </div>
-      </div>
-    );
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-8">
-      <motion.div
-        className="w-full max-w-md"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        {/* Progress Indicator */}
-        <div className="text-center mb-6">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">
-            Step 1 of 1 — Complete Your Profile
-          </p>
+    <div className="min-h-screen bg-background flex flex-col items-center justify-start px-4 py-10">
+      {/* Brand header */}
+      <div className="flex items-center gap-2 mb-8">
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#6c5ce7] to-[#ec4899] flex items-center justify-center">
+          <Shield className="w-4 h-4 text-white" />
         </div>
+        <span className="text-base font-bold" style={{ fontFamily: "var(--font-outfit)" }}>
+          RoziRakshak <span className="text-primary">AI</span>
+        </span>
+      </div>
 
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#6c5ce7] to-[#ec4899] flex items-center justify-center mx-auto mb-4">
-            <Shield className="w-8 h-8 text-white" />
-          </div>
-          <h1
-            className="text-2xl font-bold mb-2"
-            style={{ fontFamily: "var(--font-outfit)" }}
+      {/* Progress bar (only during active steps, not submitting) */}
+      {step !== "submitting" && <StepBar current={step} />}
+
+      {/* Step content */}
+      <AnimatePresence mode="wait">
+        {step === "aadhaar" && (
+          <motion.div
+            key="aadhaar"
+            className="w-full max-w-md"
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -40 }}
+            transition={{ duration: 0.3 }}
           >
-            Complete Your Profile
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Help us personalize your insurance coverage
-          </p>
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Full Name */}
-          <div className="glass rounded-xl p-4">
-            <label className="flex items-center gap-2 text-sm font-medium mb-2">
-              <User className="w-4 h-4 text-muted-foreground" />
-              Full Name
-            </label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => {
-                setFormData({ ...formData, name: e.target.value });
-                setErrors({ ...errors, name: "" });
-              }}
-              placeholder="Enter your full name"
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            <AadhaarVerification
+              onSuccess={handleAadhaarSuccess}
+              onSkip={handleAadhaarSkip}
             />
-            {errors.name && (
-              <p className="text-xs text-red-500 mt-1">{errors.name}</p>
-            )}
-          </div>
+          </motion.div>
+        )}
 
-          {/* City */}
-          <div className="glass rounded-xl p-4">
-            <label className="flex items-center gap-2 text-sm font-medium mb-2">
-              <MapPin className="w-4 h-4 text-muted-foreground" />
-              City
-            </label>
-            <select
-              value={formData.city}
-              onChange={(e) => {
-                setFormData({ ...formData, city: e.target.value });
-                setErrors({ ...errors, city: "" });
-              }}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="">Select city</option>
-              <option value="Bengaluru">Bengaluru</option>
-              <option value="Mumbai">Mumbai</option>
-              <option value="Delhi">Delhi</option>
-              <option value="Hyderabad">Hyderabad</option>
-              <option value="Chennai">Chennai</option>
-              <option value="Pune">Pune</option>
-            </select>
-            {errors.city && (
-              <p className="text-xs text-red-500 mt-1">{errors.city}</p>
-            )}
-          </div>
+        {step === "personal" && (
+          <PersonalStep
+            key="personal"
+            data={personal}
+            onChange={setPersonal}
+            onNext={() => setStep("work")}
+            onBack={() => setStep("aadhaar")}
+          />
+        )}
 
-          {/* Platform */}
-          <div className="glass rounded-xl p-4">
-            <label className="flex items-center gap-2 text-sm font-medium mb-2">
-              <Briefcase className="w-4 h-4 text-muted-foreground" />
-              Platform
-            </label>
-            <select
-              value={formData.platform}
-              onChange={(e) => {
-                setFormData({ ...formData, platform: e.target.value });
-                setErrors({ ...errors, platform: "" });
-              }}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="">Select platform</option>
-              <option value="Zepto">Zepto</option>
-              <option value="Blinkit">Blinkit</option>
-              <option value="Instamart">Instamart</option>
-              <option value="BigBasket Now">BigBasket Now</option>
-              <option value="Swiggy Instamart">Swiggy Instamart</option>
-              <option value="Other">Other</option>
-            </select>
-            {errors.platform && (
-              <p className="text-xs text-red-500 mt-1">{errors.platform}</p>
-            )}
-          </div>
+        {step === "work" && (
+          <WorkStep
+            key="work"
+            data={work}
+            onChange={setWork}
+            onNext={() => setStep("face")}
+            onBack={() => setStep("personal")}
+          />
+        )}
 
-          {/* Working Zone */}
-          <div className="glass rounded-xl p-4">
-            <label className="flex items-center gap-2 text-sm font-medium mb-2">
-              <MapPin className="w-4 h-4 text-muted-foreground" />
-              Working Zone
-            </label>
-            <input
-              type="text"
-              value={formData.zone}
-              onChange={(e) => {
-                setFormData({ ...formData, zone: e.target.value });
-                setErrors({ ...errors, zone: "" });
-              }}
-              placeholder="e.g. Koramangala, HSR Layout"
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            {errors.zone && (
-              <p className="text-xs text-red-500 mt-1">{errors.zone}</p>
-            )}
-          </div>
+        {step === "face" && (
+          <FaceVerificationStep
+            key="face"
+            workerUid={workerUid}
+            onVerified={handleFaceVerified}
+            onBack={() => setStep("work")}
+          />
+        )}
 
-          {/* Shift Start Time */}
-          <div className="glass rounded-xl p-4">
-            <label className="flex items-center gap-2 text-sm font-medium mb-2">
-              <Clock className="w-4 h-4 text-muted-foreground" />
-              Shift Start Time
-            </label>
-            <select
-              value={formData.shiftStartTime}
-              onChange={(e) => {
-                setFormData({ ...formData, shiftStartTime: e.target.value });
-                setErrors({ ...errors, shiftStartTime: "" });
-              }}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="">Select start time</option>
-              <option value="6 AM">6 AM</option>
-              <option value="7 AM">7 AM</option>
-              <option value="8 AM">8 AM</option>
-              <option value="9 AM">9 AM</option>
-              <option value="10 AM">10 AM</option>
-              <option value="11 AM">11 AM</option>
-              <option value="12 PM">12 PM</option>
-              <option value="1 PM">1 PM</option>
-              <option value="2 PM">2 PM</option>
-              <option value="3 PM">3 PM</option>
-              <option value="4 PM">4 PM</option>
-              <option value="5 PM">5 PM</option>
-              <option value="6 PM">6 PM</option>
-              <option value="7 PM">7 PM</option>
-              <option value="8 PM">8 PM</option>
-              <option value="9 PM">9 PM</option>
-              <option value="10 PM">10 PM</option>
-            </select>
-            {errors.shiftStartTime && (
-              <p className="text-xs text-red-500 mt-1">{errors.shiftStartTime}</p>
-            )}
-          </div>
+        {step === "submitting" && (
+          <SubmittingScreen key="submitting" success={submitSuccess} />
+        )}
+      </AnimatePresence>
 
-          {/* Shift Duration */}
-          <div className="glass rounded-xl p-4">
-            <label className="flex items-center gap-2 text-sm font-medium mb-2">
-              <Clock className="w-4 h-4 text-muted-foreground" />
-              Shift Duration
-            </label>
-            <select
-              value={formData.shiftDuration}
-              onChange={(e) => {
-                setFormData({ ...formData, shiftDuration: e.target.value });
-                setErrors({ ...errors, shiftDuration: "" });
-              }}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="">Select duration</option>
-              <option value="4 hours">4 hours</option>
-              <option value="6 hours">6 hours</option>
-              <option value="8 hours">8 hours</option>
-              <option value="10 hours">10 hours</option>
-              <option value="12 hours">12 hours</option>
-            </select>
-            {errors.shiftDuration && (
-              <p className="text-xs text-red-500 mt-1">{errors.shiftDuration}</p>
-            )}
-          </div>
-
-          {/* Weekly Income Range */}
-          <div className="glass rounded-xl p-4">
-            <label className="flex items-center gap-2 text-sm font-medium mb-2">
-              <Wallet className="w-4 h-4 text-muted-foreground" />
-              Weekly Income Range
-            </label>
-            <select
-              value={formData.weeklyEarningRange}
-              onChange={(e) => {
-                setFormData({ ...formData, weeklyEarningRange: e.target.value });
-                setErrors({ ...errors, weeklyEarningRange: "" });
-              }}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="">Select income range</option>
-              <option value="₹3,000 - ₹5,000">₹3,000 - ₹5,000</option>
-              <option value="₹5,000 - ₹7,000">₹5,000 - ₹7,000</option>
-              <option value="₹7,000 - ₹10,000">₹7,000 - ₹10,000</option>
-              <option value="₹10,000+">₹10,000+</option>
-            </select>
-            {errors.weeklyEarningRange && (
-              <p className="text-xs text-red-500 mt-1">{errors.weeklyEarningRange}</p>
-            )}
-          </div>
-
-          {/* UPI ID */}
-          <div className="glass rounded-xl p-4">
-            <label className="flex items-center gap-2 text-sm font-medium mb-2">
-              <Wallet className="w-4 h-4 text-muted-foreground" />
-              UPI ID
-            </label>
-            <input
-              type="text"
-              value={formData.upiId}
-              onChange={(e) => {
-                setFormData({ ...formData, upiId: e.target.value });
-                setErrors({ ...errors, upiId: "" });
-              }}
-              placeholder="yourname@upi"
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            {errors.upiId && (
-              <p className="text-xs text-red-500 mt-1">{errors.upiId}</p>
-            )}
-          </div>
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-[#6c5ce7] to-[#a855f7] text-white font-semibold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50"
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                Complete Profile
-                <ArrowRight className="w-5 h-5" />
-              </>
-            )}
-          </button>
-        </form>
-      </motion.div>
+      {/* Step counter hint */}
+      {step !== "submitting" && (
+        <p className="mt-6 text-[11px] text-muted-foreground">
+          Step {STEP_ORDER.indexOf(step) + 1} of {STEP_META.length}
+        </p>
+      )}
     </div>
   );
 }

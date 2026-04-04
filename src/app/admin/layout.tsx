@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -31,7 +31,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const router = useRouter();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { user, role, loading, signOut } = useAuth();
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Read admin theme: localStorage "admin-theme" overrides, else follow system preference
+  useEffect(() => {
+    const stored = localStorage.getItem("admin-theme");
+    const prefersDark =
+      stored === "dark" ||
+      (stored !== "light" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    if (prefersDark) {
+      wrapper.classList.add("dark");
+    } else {
+      wrapper.classList.remove("dark");
+    }
+  }, []);
 
   useEffect(() => {
     if (loading) return;
@@ -70,7 +86,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="min-h-screen bg-background flex text-foreground">
+    <div
+      ref={wrapperRef}
+      suppressHydrationWarning
+      className="min-h-screen bg-background flex text-foreground"
+    >
       {/* Sidebar */}
       <aside 
         className={`fixed left-0 top-0 h-full bg-sidebar border-r border-sidebar-border z-50 flex flex-col py-6 ${isCollapsed ? 'w-20 px-2' : 'w-64 px-4'} transition-all duration-300`}

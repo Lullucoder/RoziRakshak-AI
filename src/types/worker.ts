@@ -67,4 +67,32 @@ export interface WorkerProfile extends BaseDocument {
 
   /** Date the worker first registered. */
   joinedDate: FirestoreTimestamp;
+
+  // ─── KYC / Identity ────────────────────────────────────────────────────────
+
+  /** Whether Aadhaar KYC was completed during onboarding. */
+  aadhaar_verified?: boolean;
+
+  /** Masked Aadhaar number, e.g. "XXXX-XXXX-3421". Never stores full number. */
+  aadhaar_masked?: string;
+
+  /** Timestamp when Aadhaar verification was completed. */
+  aadhaar_verified_at?: FirestoreTimestamp;
+
+  /** Which KYC method was used. */
+  kyc_method?: "digilocker_mock";
+
+  // ─── Face Liveness / Photo ─────────────────────────────────────────────────
+
+  /** Whether the real-time liveness check was passed during onboarding. */
+  face_verified?: boolean;
+
+  /** R2 object key for the captured face photo, e.g. "faces/{uid}.jpg". */
+  face_image_r2_key?: string;
+
+  /** Timestamp when liveness check was completed. */
+  face_verified_at?: FirestoreTimestamp;
+
+  /** Whether the MediaPipe liveness check (look, blink, turn) was passed. */
+  liveness_check_passed?: boolean;
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { motion } from "framer-motion";
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield,
   CloudRain,
@@ -13,9 +13,12 @@ import {
   ArrowRight,
   Bell,
   TrendingUp,
+  Sun,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import toast from "react-hot-toast";
+import { useWorkerTheme } from "../layout";
 
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -61,10 +64,71 @@ const statusClass: Record<string, string> = {
 };
 
 export default function WorkerDashboard() {
-  const { userProfile } = useAuth();
-  
+  const { theme, setTheme } = useWorkerTheme();
+
+  // Dismissable dark-mode banner
+  const DISMISS_KEY = "worker-dark-tip-dismissed";
+  const [bannerDismissed, setBannerDismissed] = useState(true); // start hidden to avoid flash
+
+  useEffect(() => {
+    const dismissed = localStorage.getItem(DISMISS_KEY) === "1";
+    setBannerDismissed(dismissed);
+  }, []);
+
+  const dismissBanner = () => {
+    setBannerDismissed(true);
+    localStorage.setItem(DISMISS_KEY, "1");
+  };
+
+  const showBanner = theme === "dark" && !bannerDismissed;
+
   return (
     <div className="px-4 pt-6">
+      {/* ——— Dark Mode Outdoor Tip Banner ——— */}
+      <AnimatePresence>
+        {showBanner && (
+          <motion.div
+            key="dark-tip-banner"
+            initial={{ opacity: 0, y: -8, scaleY: 0.9 }}
+            animate={{ opacity: 1, y: 0, scaleY: 1 }}
+            exit={{ opacity: 0, y: -8, scaleY: 0.9 }}
+            transition={{ duration: 0.25 }}
+            className="mb-4 rounded-2xl p-3 flex items-center gap-3"
+            style={{
+              background: "linear-gradient(135deg, rgba(245,158,11,0.18), rgba(251,191,36,0.10))",
+              border: "1px solid rgba(245,158,11,0.35)",
+            }}
+          >
+            <Sun className="w-5 h-5 flex-shrink-0" style={{ color: "#d97706" }} />
+            <p className="flex-1 text-xs font-medium" style={{ color: "#92400e" }}>
+              Tip: Switch to <strong>Light Mode</strong> for better visibility outdoors.
+            </p>
+            <button
+              id="dark-tip-switch-now-btn"
+              onClick={() => { setTheme("light"); dismissBanner(); }}
+              className="flex-shrink-0 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+              aria-label="Switch to light mode"
+              style={{
+                background: "rgba(245,158,11,0.25)",
+                color: "#92400e",
+                border: "1px solid rgba(245,158,11,0.5)",
+                minHeight: "36px",
+              }}
+            >
+              Switch Now
+            </button>
+            <button
+              id="dark-tip-dismiss-btn"
+              onClick={dismissBanner}
+              style={{ minHeight: "36px", minWidth: "36px" }}
+              className="flex-shrink-0 rounded-lg flex items-center justify-center transition-colors hover:bg-amber-200/30"
+              aria-label="Dismiss tip"
+            >
+              <X className="w-3.5 h-3.5" style={{ color: "#92400e" }} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

@@ -63,9 +63,9 @@ export default function RootLayout({
             toastOptions={{
               duration: 4000,
               style: {
-                background: "#1e1e2e",
-                color: "#e8e8f0",
-                border: "1px solid rgba(108, 92, 231, 0.3)",
+                background: "var(--card)",
+                color: "var(--card-foreground)",
+                border: "1px solid var(--border)",
                 borderRadius: "12px",
               },
             }}
