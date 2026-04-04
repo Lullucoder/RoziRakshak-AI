@@ -4,8 +4,12 @@
  */
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Timestamp } from 'firebase-admin/firestore';
+import admin from 'firebase-admin';
+import type { Timestamp } from 'firebase-admin/firestore';
 import { createHmac } from 'crypto';
+
+const FieldValue = admin.firestore.FieldValue;
+const TimestampValue = admin.firestore.Timestamp;
 
 // Razorpay configuration
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || '';

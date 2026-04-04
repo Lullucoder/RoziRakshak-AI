@@ -56,17 +56,17 @@ export async function POST(request: NextRequest) {
     
     // Step 2: Rate limiting
     const rateLimitKey = `premium_quote:${workerId}`;
-    const now = Date.now();
+    const nowTimestamp = Date.now();
     const rateLimitData = rateLimitStore.get(rateLimitKey);
     
     if (rateLimitData) {
-      if (now < rateLimitData.resetAt) {
+      if (nowTimestamp < rateLimitData.resetAt) {
         if (rateLimitData.count >= RATE_LIMIT_MAX) {
           return NextResponse.json(
             { 
               error: 'Rate limit exceeded', 
               message: `Maximum ${RATE_LIMIT_MAX} quote requests per hour`,
-              retry_after: Math.ceil((rateLimitData.resetAt - now) / 1000)
+              retry_after: Math.ceil((rateLimitData.resetAt - nowTimestamp) / 1000)
             },
             { status: 429 }
           );
@@ -74,10 +74,10 @@ export async function POST(request: NextRequest) {
         rateLimitData.count++;
       } else {
         // Reset window
-        rateLimitStore.set(rateLimitKey, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+        rateLimitStore.set(rateLimitKey, { count: 1, resetAt: nowTimestamp + RATE_LIMIT_WINDOW_MS });
       }
     } else {
-      rateLimitStore.set(rateLimitKey, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+      rateLimitStore.set(rateLimitKey, { count: 1, resetAt: nowTimestamp + RATE_LIMIT_WINDOW_MS });
     }
     
     // Step 3: Fetch worker profile

@@ -6,6 +6,7 @@
  */
 
 import { getAuth } from 'firebase/auth';
+import { useState } from 'react';
 
 /**
  * Example 1: Client-side usage (React component)
@@ -83,9 +84,9 @@ export async function fetchPremiumQuoteServer(idToken: string) {
  * Example 3: React hook for premium quotes
  */
 export function usePremiumQuote() {
-  const [quote, setQuote] = React.useState<any>(null);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [quote, setQuote] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   const fetchQuote = async () => {
     setLoading(true);

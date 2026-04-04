@@ -7,7 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { Timestamp } from 'firebase-admin/firestore';
+import admin from 'firebase-admin';
+const { Timestamp } = admin.firestore;
 
 /**
  * PATCH /api/claims/[claimId]/review
@@ -20,10 +21,10 @@ import { Timestamp } from 'firebase-admin/firestore';
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { claimId: string } }
+  { params }: { params: Promise<{ claimId: string }> }
 ) {
   try {
-    const { claimId } = params;
+    const { claimId } = await params;
     
     console.log('[Claim Review] Request for claim:', claimId);
     

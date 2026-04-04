@@ -6,6 +6,7 @@
  */
 
 import { getAuth } from 'firebase/auth';
+import { useState } from 'react';
 
 /**
  * Example 1: Initiate payout from claims orchestrator
@@ -119,9 +120,9 @@ export async function simulatePayoutForDemo(
  * Example 3: React component for admin payout button
  */
 export function AdminPayoutButton({ claim }: { claim: any }) {
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [success, setSuccess] = React.useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
   
   const handleInitiatePayout = async () => {
     setLoading(true);

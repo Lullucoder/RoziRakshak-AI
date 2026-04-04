@@ -6,7 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
 import { adminDb as db } from '@/lib/firebase-admin';
-import { Timestamp } from 'firebase-admin/firestore';
+import admin from 'firebase-admin';
+const { Timestamp } = admin.firestore;
 
 /**
  * POST /api/webhooks/razorpay

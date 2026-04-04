@@ -7,7 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { Timestamp } from 'firebase-admin/firestore';
+import admin from 'firebase-admin';
+const { Timestamp } = admin.firestore;
 
 // Rate limiting using in-memory store (replace with Upstash Redis in production)
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();

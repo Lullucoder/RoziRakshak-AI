@@ -13,10 +13,10 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { claimId: string } }
+  { params }: { params: Promise<{ claimId: string }> }
 ) {
   try {
-    const { claimId } = params;
+    const { claimId } = await params;
     
     console.log('[Claim Details] Request for claim:', claimId);
     
@@ -88,7 +88,7 @@ export async function GET(
     console.log('[Claim Details] Authorization passed');
     
     // Step 4: Get linked payout if exists
-    let payout = null;
+    let payout: any = null;
     if (claim.payoutId) {
       const payoutDoc = await adminDb.collection('payouts').doc(claim.payoutId).get();
       if (payoutDoc.exists) {

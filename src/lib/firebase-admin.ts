@@ -8,16 +8,12 @@
  * Exports:  adminApp, adminAuth, adminDb, adminStorage
  */
 
-import {
-  initializeApp,
-  getApps,
-  cert,
-  type App,
-  type ServiceAccount,
-} from "firebase-admin/app";
-import { getAuth, type Auth } from "firebase-admin/auth";
-import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import { getStorage, type Storage } from "firebase-admin/storage";
+import admin from "firebase-admin";
+import type { ServiceAccount } from "firebase-admin";
+import type { App } from "firebase-admin/app";
+import type { Auth } from "firebase-admin/auth";
+import type { Firestore } from "firebase-admin/firestore";
+import type { Storage } from "firebase-admin/storage";
 
 // ── Guard: prevent accidental client-side import ───────────────────────────────
 if (typeof window !== "undefined") {
@@ -38,12 +34,12 @@ const serviceAccount: ServiceAccount = {
 
 // ── Singleton initialisation ───────────────────────────────────────────────────
 const adminApp: App =
-  getApps().length === 0
-    ? initializeApp({ credential: cert(serviceAccount) })
-    : getApps()[0];
+  admin.apps.length === 0
+    ? admin.initializeApp({ credential: admin.credential.cert(serviceAccount) })
+    : admin.apps[0]!;
 
-const adminAuth: Auth = getAuth(adminApp);
-const adminDb: Firestore = getFirestore(adminApp);
-const adminStorage: Storage = getStorage(adminApp);
+const adminAuth: Auth = admin.auth(adminApp);
+const adminDb: Firestore = admin.firestore(adminApp);
+const adminStorage: Storage = admin.storage(adminApp);
 
 export { adminApp, adminAuth, adminDb, adminStorage };
