@@ -8,6 +8,13 @@ import { db } from "@/lib/firebase";
 import { getWorkerByUid } from "@/lib/firestore";
 import { verifyOTP, firebaseSignOut } from "@/lib/auth";
 import { WorkerProfile, UserRole } from "@/types";
+import {
+  isMockAuthEnabled,
+  mockVerifyOTP,
+  mockGetUserProfile,
+  mockCreateUserProfile,
+  mockSignOut,
+} from "@/lib/mockAuth";
 
 // ─── Context Type ─────────────────────────────────────────────────────────────
 
@@ -15,9 +22,10 @@ interface AuthContextType {
   user: User | null;
   userProfile: WorkerProfile | null;
   role: UserRole | null;
+  isOnboarded: boolean;
   loading: boolean;
   verifyOtp: (
-    confirmationResult: ConfirmationResult,
+    confirmationResultOrPhone: ConfirmationResult | string,
     otp: string,
     selectedRole: "worker" | "admin"
   ) => Promise<void>;
@@ -28,6 +36,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   userProfile: null,
   role: null,
+  isOnboarded: false,
   loading: true,
   verifyOtp: async () => {
     throw new Error("Not implemented");
@@ -41,10 +50,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<WorkerProfile | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
+  const [isOnboarded, setIsOnboarded] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const useMockAuth = isMockAuthEnabled();
 
   // Re-hydrate session on auth state change (page reload / token refresh)
   useEffect(() => {
+    if (useMockAuth) {
+      // Mock auth doesn't persist sessions across reloads
+      setLoading(false);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
@@ -53,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (profile) {
             setUserProfile(profile);
             setRole(profile.role);
+            setIsOnboarded(profile.isOnboarded ?? false);
           }
         } catch (err) {
           console.error("Failed to fetch worker profile on auth change:", err);
@@ -61,76 +80,94 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         setUserProfile(null);
         setRole(null);
+        setIsOnboarded(false);
       }
       setLoading(false);
     });
 
     return unsubscribe;
-  }, []);
+  }, [useMockAuth]);
 
   // ─── Verify OTP & provision user ───────────────────────────────────────────
 
   const verifyOtp = async (
-    confirmationResult: ConfirmationResult,
+    confirmationResultOrPhone: ConfirmationResult | string,
     otp: string,
     selectedRole: "worker" | "admin"
   ) => {
     setLoading(true);
 
     try {
-      // 1. Confirm the OTP with Firebase Auth
-      const credential = await verifyOTP(confirmationResult, otp);
-      const firebaseUser = credential.user;
-      setUser(firebaseUser);
+      let firebaseUser: User;
+      let existingProfile: WorkerProfile | null;
 
-      // 2. Look up existing worker document by uid
-      const existingProfile = await getWorkerByUid(firebaseUser.uid);
+      if (useMockAuth) {
+        // ── Mock Auth Flow ──────────────────────────────────────────────
+        const phone = typeof confirmationResultOrPhone === "string" 
+          ? confirmationResultOrPhone 
+          : "";
+        
+        firebaseUser = await mockVerifyOTP("", otp, phone);
+        existingProfile = await mockGetUserProfile(firebaseUser.uid);
 
-      if (existingProfile) {
-        // ── Returning user: ignore selectedRole, use stored role ─────────
-        setUserProfile(existingProfile);
-        setRole(existingProfile.role);
+        if (!existingProfile) {
+          existingProfile = await mockCreateUserProfile(
+            firebaseUser.uid,
+            phone,
+            selectedRole
+          );
+        }
       } else {
-        // ── First-time user: create new workers document ─────────────────
-        const isAdmin = selectedRole === "admin";
+        // ── Firebase Auth Flow ──────────────────────────────────────────
+        if (typeof confirmationResultOrPhone === "string") {
+          throw new Error("Invalid confirmation result");
+        }
 
-        const newProfileData = {
-          uid: firebaseUser.uid,
-          phone: firebaseUser.phoneNumber ?? "",
-          name: "",
-          city: "",
-          platform: "",
-          zone: "",
-          workingHours: "",
-          weeklyEarningRange: "",
-          upiId: "",
-          role: selectedRole as UserRole,
-          isOnboarded: isAdmin, // admins skip onboarding
-          trustScore: 0.8,
-          activePlan: null,
-          claimsCount: 0,
-          joinedDate: serverTimestamp(),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        };
+        const credential = await verifyOTP(confirmationResultOrPhone, otp);
+        firebaseUser = credential.user;
+        existingProfile = await getWorkerByUid(firebaseUser.uid);
 
-        // Use Firebase uid as the document ID
-        const workerDocRef = doc(db, "workers", firebaseUser.uid);
-        await setDoc(workerDocRef, newProfileData);
+        if (!existingProfile) {
+          // Create new workers document
+          const isAdmin = selectedRole === "admin";
 
-        // Build the profile object for local state
-        const newProfile: WorkerProfile = {
-          ...newProfileData,
-          id: firebaseUser.uid,
-          // Replace FieldValue sentinels with a usable local value
-          joinedDate: new Date().toISOString(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+          const newProfileData = {
+            uid: firebaseUser.uid,
+            phone: firebaseUser.phoneNumber ?? "",
+            name: "",
+            city: "",
+            platform: "",
+            zone: "",
+            workingHours: "",
+            weeklyEarningRange: "",
+            upiId: "",
+            role: selectedRole as UserRole,
+            isOnboarded: isAdmin,
+            trustScore: 0.8,
+            activePlan: null,
+            claimsCount: 0,
+            joinedDate: serverTimestamp(),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          };
 
-        setUserProfile(newProfile);
-        setRole(selectedRole);
+          const workerDocRef = doc(db, "workers", firebaseUser.uid);
+          await setDoc(workerDocRef, newProfileData);
+
+          existingProfile = {
+            ...newProfileData,
+            id: firebaseUser.uid,
+            joinedDate: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+        }
       }
+
+      setUser(firebaseUser);
+      setUserProfile(existingProfile);
+      setRole(existingProfile.role);
+      setIsOnboarded(existingProfile.isOnboarded ?? false);
     } finally {
       setLoading(false);
     }
@@ -140,18 +177,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const handleSignOut = async () => {
     try {
-      await firebaseSignOut();
+      if (useMockAuth) {
+        await mockSignOut();
+      } else {
+        await firebaseSignOut();
+      }
     } catch (err) {
       console.error("Sign-out error:", err);
     }
     setUser(null);
     setUserProfile(null);
     setRole(null);
+    setIsOnboarded(false);
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, userProfile, role, loading, verifyOtp, signOut: handleSignOut }}
+      value={{ user, userProfile, role, isOnboarded, loading, verifyOtp, signOut: handleSignOut }}
     >
       {children}
     </AuthContext.Provider>

@@ -16,7 +16,7 @@ const navItems = [
 export default function WorkerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, userProfile, role, loading } = useAuth();
+  const { user, userProfile, role, isOnboarded, loading } = useAuth();
 
   useEffect(() => {
     if (loading) return;
@@ -26,19 +26,19 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
       return;
     }
 
-    if (user && !userProfile) {
-      router.replace("/onboarding");
-      return;
-    }
-
-    if (user && userProfile && role === "admin") {
+    if (user && role === "admin") {
       router.replace("/admin/dashboard");
       return;
     }
-  }, [user, userProfile, role, loading, router]);
+
+    if (user && !isOnboarded) {
+      router.replace("/onboarding");
+      return;
+    }
+  }, [user, role, isOnboarded, loading, router]);
 
   // Show full-screen spinner while loading or redirecting
-  if (loading || !user || !userProfile || role === "admin") {
+  if (loading || !user || role === "admin" || !isOnboarded) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">

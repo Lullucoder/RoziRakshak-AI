@@ -21,6 +21,7 @@ export function useRecaptcha() {
   const recaptchaRef = useRef<HTMLDivElement | null>(null);
   const verifierRef = useRef<RecaptchaVerifier | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // ── Initialise on mount ───────────────────────────────────────────────
   useEffect(() => {
@@ -30,25 +31,58 @@ export function useRecaptcha() {
     // Prevent double-init during React Strict Mode double-mount
     if (verifierRef.current) return;
 
-    const rv = new RecaptchaVerifier(auth, el, {
-      size: "invisible",
-      callback: () => {
-        // Solved — nothing to do; signInWithPhoneNumber drives the flow.
-      },
-      "expired-callback": () => {
-        // Token expired before being used — reset so a fresh one is generated.
-        rv.render().catch(() => {});
-      },
-    });
+    try {
+      const rv = new RecaptchaVerifier(auth, el, {
+        size: "normal",
+        callback: () => {
+          // Solved — nothing to do; signInWithPhoneNumber drives the flow.
+          setIsReady(true);
+          setError(null);
+        },
+        "expired-callback": () => {
+          // Token expired before being used — reset so a fresh one is generated.
+          setIsReady(false);
+          rv.render().then(() => {
+            setIsReady(true);
+          }).catch((err) => {
+            console.error("reCAPTCHA render error:", err);
+            setError("Failed to load reCAPTCHA. Please refresh the page.");
+          });
+        },
+        "error-callback": () => {
+          setError("reCAPTCHA error. Please refresh the page.");
+          setIsReady(false);
+        },
+      });
 
-    verifierRef.current = rv;
-    setIsReady(true);
+      verifierRef.current = rv;
+      
+      // Render the reCAPTCHA widget
+      rv.render().then(() => {
+        setIsReady(true);
+        setError(null);
+      }).catch((err) => {
+        console.error("reCAPTCHA initialization error:", err);
+        setError("Failed to load reCAPTCHA. Please check your internet connection and refresh.");
+        setIsReady(false);
+      });
+
+    } catch (err) {
+      console.error("reCAPTCHA setup error:", err);
+      setError("Failed to initialize reCAPTCHA. Please refresh the page.");
+      setIsReady(false);
+    }
 
     // ── Cleanup on unmount ────────────────────────────────────────────
     return () => {
-      verifierRef.current?.clear();
+      try {
+        verifierRef.current?.clear();
+      } catch (err) {
+        console.error("reCAPTCHA cleanup error:", err);
+      }
       verifierRef.current = null;
       setIsReady(false);
+      setError(null);
     };
   }, []);
 
@@ -57,7 +91,11 @@ export function useRecaptcha() {
    * next call to signInWithPhoneNumber gets a fresh token).
    */
   const resetVerifier = useCallback(() => {
-    verifierRef.current?.render().catch(() => {});
+    if (verifierRef.current) {
+      verifierRef.current.render().catch((err) => {
+        console.error("reCAPTCHA reset error:", err);
+      });
+    }
   }, []);
 
   return {
@@ -67,6 +105,8 @@ export function useRecaptcha() {
     verifier: verifierRef.current,
     /** `true` once the verifier has been created and is usable. */
     isReady,
+    /** Error message if reCAPTCHA failed to load */
+    error,
     /** Force-reset the reCAPTCHA (call after a failed OTP send). */
     resetVerifier,
   } as const;

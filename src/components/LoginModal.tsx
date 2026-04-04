@@ -21,6 +21,7 @@ import { type ConfirmationResult } from "firebase/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { sendOTP, AuthError } from "@/lib/auth";
 import { useRecaptcha } from "@/lib/hooks/useRecaptcha";
+import { isMockAuthEnabled, mockSendOTP } from "@/lib/mockAuth";
 
 type Step = "phone" | "otp";
 type Role = "worker" | "admin";
@@ -32,7 +33,8 @@ interface LoginModalProps {
 
 export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
   const { verifyOtp } = useAuth();
-  const { recaptchaRef, verifier, resetVerifier } = useRecaptcha();
+  const { recaptchaRef, verifier, isReady, error: recaptchaError, resetVerifier } = useRecaptcha();
+  const useMockAuth = isMockAuthEnabled();
 
   const [step, setStep] = useState<Step>("phone");
   const [selectedRole, setSelectedRole] = useState<Role>("worker");
@@ -41,6 +43,7 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
   const [loading, setLoading] = useState(false);
   const [confirmationResult, setConfirmationResult] =
     useState<ConfirmationResult | null>(null);
+  const [mockPhone, setMockPhone] = useState("");
   const [resendCountdown, setResendCountdown] = useState(0);
 
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -54,6 +57,7 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
       setOtp(["", "", "", "", "", ""]);
       setLoading(false);
       setConfirmationResult(null);
+      setMockPhone("");
       setResendCountdown(0);
     }
   }, [isOpen]);
@@ -75,21 +79,34 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
       return;
     }
 
-    if (!verifier) {
-      toast.error("reCAPTCHA not ready. Please wait a moment.");
+    if (!useMockAuth && (!verifier || !isReady)) {
+      toast.error("Please complete the reCAPTCHA verification first");
       return;
     }
 
     setLoading(true);
     try {
-      const result = await sendOTP(cleaned, verifier);
-      setConfirmationResult(result);
-      setOtp(["", "", "", "", "", ""]);
-      setStep("otp");
-      setResendCountdown(30);
-      toast.success("OTP sent!");
+      if (useMockAuth) {
+        // Mock auth flow
+        await mockSendOTP(cleaned);
+        setMockPhone(cleaned);
+        setOtp(["", "", "", "", "", ""]);
+        setStep("otp");
+        setResendCountdown(30);
+        toast.success("OTP sent! Use 123456");
+      } else {
+        // Firebase auth flow
+        const result = await sendOTP(cleaned, verifier!);
+        setConfirmationResult(result);
+        setOtp(["", "", "", "", "", ""]);
+        setStep("otp");
+        setResendCountdown(30);
+        toast.success("OTP sent!");
+      }
     } catch (error) {
-      resetVerifier();
+      if (!useMockAuth) {
+        resetVerifier();
+      }
       if (error instanceof AuthError) {
         toast.error(error.message);
       } else {
@@ -98,19 +115,24 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
     } finally {
       setLoading(false);
     }
-  }, [phone, verifier, resetVerifier]);
+  }, [phone, verifier, isReady, useMockAuth, resetVerifier]);
 
   // ── STEP 2: Verify OTP ────────────────────────────────────────────────
   const handleVerifyOTP = useCallback(async (code: string) => {
     if (code.length !== 6) return;
-    if (!confirmationResult) {
+    
+    if (!useMockAuth && !confirmationResult) {
       toast.error("Please request an OTP first.");
       return;
     }
 
     setLoading(true);
     try {
-      await verifyOtp(confirmationResult, code, selectedRole);
+      if (useMockAuth) {
+        await verifyOtp(mockPhone, code, selectedRole);
+      } else {
+        await verifyOtp(confirmationResult!, code, selectedRole);
+      }
       toast.success("Login successful!");
       onOpenChange(false);
     } catch (error) {
@@ -126,12 +148,12 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
             toast.error(error.message);
         }
       } else {
-        toast.error("Verification failed. Please try again.");
+        toast.error(error instanceof Error ? error.message : "Verification failed. Please try again.");
       }
     } finally {
       setLoading(false);
     }
-  }, [confirmationResult, selectedRole, verifyOtp, onOpenChange]);
+  }, [confirmationResult, mockPhone, selectedRole, useMockAuth, verifyOtp, onOpenChange]);
 
   // ── OTP input handlers ────────────────────────────────────────────────
   const handleOtpChange = (index: number, value: string) => {
@@ -183,17 +205,27 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
 
   // ── Resend OTP ────────────────────────────────────────────────────────
   const handleResendOTP = async () => {
-    if (resendCountdown > 0 || !verifier) return;
+    if (resendCountdown > 0) return;
+    if (!useMockAuth && !verifier) return;
 
     setLoading(true);
     try {
-      const result = await sendOTP(phone.replace(/\D/g, ""), verifier);
-      setConfirmationResult(result);
-      setOtp(["", "", "", "", "", ""]);
-      setResendCountdown(30);
-      toast.success("OTP resent!");
+      if (useMockAuth) {
+        await mockSendOTP(mockPhone);
+        setOtp(["", "", "", "", "", ""]);
+        setResendCountdown(30);
+        toast.success("OTP resent! Use 123456");
+      } else {
+        const result = await sendOTP(phone.replace(/\D/g, ""), verifier!);
+        setConfirmationResult(result);
+        setOtp(["", "", "", "", "", ""]);
+        setResendCountdown(30);
+        toast.success("OTP resent!");
+      }
     } catch (error) {
-      resetVerifier();
+      if (!useMockAuth) {
+        resetVerifier();
+      }
       if (error instanceof AuthError) {
         toast.error(error.message);
       } else {
@@ -243,8 +275,31 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
               : `Enter the 6-digit OTP sent to +91 ${maskedPhone}`}
           </p>
 
-          {/* Hidden reCAPTCHA container */}
-          <div id="recaptcha-container" ref={recaptchaRef} />
+          {/* reCAPTCHA container - only show if not using mock auth */}
+          {!useMockAuth && (
+            <div className="flex flex-col items-center mb-6">
+              <div id="recaptcha-container" ref={recaptchaRef} />
+              {recaptchaError && (
+                <p className="text-xs text-destructive mt-2 text-center">
+                  {recaptchaError}
+                </p>
+              )}
+              {!isReady && !recaptchaError && (
+                <p className="text-xs text-muted-foreground mt-2 animate-pulse">
+                  Loading security verification...
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Mock auth indicator */}
+          {useMockAuth && step === "phone" && (
+            <div className="mb-4 p-3 rounded-xl bg-warning/10 border border-warning/30">
+              <p className="text-xs text-warning text-center">
+                🧪 Mock Auth Mode: Use OTP <strong>123456</strong>
+              </p>
+            </div>
+          )}
 
           <AnimatePresence mode="wait">
             {/* ── STEP 1: Phone + Role ── */}
@@ -332,11 +387,16 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
                 {/* Send OTP button */}
                 <button
                   onClick={handleSendOTP}
-                  disabled={loading || phone.replace(/\D/g, "").length < 10}
+                  disabled={loading || phone.replace(/\D/g, "").length < 10 || (!useMockAuth && !isReady)}
                   className="w-full py-3 rounded-xl bg-gradient-to-r from-[#6c5ce7] to-[#a855f7] text-white font-semibold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : !useMockAuth && !isReady ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Loading reCAPTCHA...
+                    </>
                   ) : (
                     <>
                       Send OTP <ArrowRight className="w-5 h-5" />
@@ -424,6 +484,7 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
                     setStep("phone");
                     setOtp(["", "", "", "", "", ""]);
                     setConfirmationResult(null);
+                    setMockPhone("");
                     setResendCountdown(0);
                   }}
                   className="w-full mt-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"

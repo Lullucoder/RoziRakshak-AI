@@ -17,6 +17,8 @@ import {
 import Link from "next/link";
 import toast from "react-hot-toast";
 
+import { useAuth } from "@/contexts/AuthContext";
+
 const triggers = [
   { icon: CloudRain, label: "Rain", status: "active", color: "#3b82f6" },
   { icon: Thermometer, label: "Heat", status: "normal", color: "#f97316" },
@@ -59,6 +61,8 @@ const statusClass: Record<string, string> = {
 };
 
 export default function WorkerDashboard() {
+  const { userProfile } = useAuth();
+  
   return (
     <div className="px-4 pt-6">
       {/* Header */}
@@ -66,7 +70,7 @@ export default function WorkerDashboard() {
         <div>
           <p className="text-sm text-muted-foreground">Good evening,</p>
           <h1 className="text-xl font-bold" style={{ fontFamily: "var(--font-outfit)" }}>
-            Arjun 👋
+            {userProfile?.name || "Worker"} 👋
           </h1>
         </div>
         <button
