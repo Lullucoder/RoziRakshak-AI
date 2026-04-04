@@ -123,7 +123,7 @@ export async function initiateTestPayout(
       await workerRef.update({
         razorpay_fund_account_id: fundAccountId,
         upiId: upiId,
-        updated_at: Timestamp.now()
+        updated_at: TimestampValue.now()
       });
       
       console.log('[Payout] Fund account created:', fundAccountId);
@@ -156,11 +156,11 @@ export async function initiateTestPayout(
       razorpay_reference_id: referenceId,
       status: 'processing',
       failure_reason: null,
-      initiated_at: Timestamp.now(),
+      initiated_at: TimestampValue.now(),
       paid_at: null,
       notes: null,
-      created_at: Timestamp.now(),
-      updated_at: Timestamp.now()
+      created_at: TimestampValue.now(),
+      updated_at: TimestampValue.now()
     };
     
     await payoutRef.set(payoutDoc);
@@ -171,7 +171,7 @@ export async function initiateTestPayout(
     await adminDb.collection('claims').doc(claimId).update({
       payoutId: payoutRef.id,
       status: 'payout_initiated',
-      updated_at: Timestamp.now()
+      updated_at: TimestampValue.now()
     });
     
     console.log('[Payout] Claim updated with payout ID');
@@ -190,7 +190,7 @@ export async function initiateTestPayout(
       await adminDb.collection('claims').doc(claimId).update({
         status: 'payout_failed',
         holdReason: `Payout initiation failed: ${error.message}`,
-        updated_at: Timestamp.now()
+        updated_at: TimestampValue.now()
       });
     } catch (updateError) {
       console.error('[Payout] Failed to update claim status:', updateError);
@@ -424,7 +424,7 @@ async function handlePayoutProcessed(
   console.log('[Payout Webhook] Processing payout.processed:', payoutId);
   
   try {
-    const now = Timestamp.now();
+    const now = TimestampValue.now();
     
     // Update payout document
     await adminDb.collection('payouts').doc(payoutId).update({
@@ -448,13 +448,13 @@ async function handlePayoutProcessed(
     // Update worker's payout history
     const workerRef = adminDb.collection('workers').doc(payout.worker_id);
     await workerRef.update({
-      payout_history: adminDb.FieldValue.arrayUnion({
+      payout_history: FieldValue.arrayUnion({
         claim_id: payout.claim_id,
         amount_inr: payout.amount_inr,
         paid_at: now,
         razorpay_payout_id: payout.razorpay_payout_id
       }),
-      total_payouts_received: adminDb.FieldValue.increment(payout.amount_inr),
+      total_payouts_received: FieldValue.increment(payout.amount_inr),
       updated_at: now
     });
     
@@ -481,7 +481,7 @@ async function handlePayoutFailed(
   console.log('[Payout Webhook] Processing payout.failed:', payoutId);
   
   try {
-    const now = Timestamp.now();
+    const now = TimestampValue.now();
     const failureReason = payoutData.failure_reason || 'Unknown failure';
     
     // Update payout document
@@ -524,7 +524,7 @@ async function handlePayoutReversed(
   console.log('[Payout Webhook] Processing payout.reversed:', payoutId);
   
   try {
-    const now = Timestamp.now();
+    const now = TimestampValue.now();
     
     // Update payout document
     await adminDb.collection('payouts').doc(payoutId).update({
@@ -571,7 +571,7 @@ export async function simulateInstantPayout(
   });
   
   try {
-    const now = Timestamp.now();
+    const now = TimestampValue.now();
     
     // Create demo payout document
     const payoutRef = adminDb.collection('payouts').doc();
@@ -610,13 +610,13 @@ export async function simulateInstantPayout(
     // Update worker's payout history
     const workerRef = adminDb.collection('workers').doc(workerId);
     await workerRef.update({
-      payout_history: adminDb.FieldValue.arrayUnion({
+      payout_history: FieldValue.arrayUnion({
         claim_id: claimId,
         amount_inr: amountInr,
         paid_at: now,
         demo: true
       }),
-      total_payouts_received: adminDb.FieldValue.increment(amountInr),
+      total_payouts_received: FieldValue.increment(amountInr),
       updated_at: now
     });
     

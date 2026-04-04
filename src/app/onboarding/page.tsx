@@ -118,12 +118,10 @@ export default function OnboardingPage() {
         city: formData.city,
         platform: formData.platform,
         zone: formData.zone,
-        shiftStartTime: formData.shiftStartTime,
-        shiftDuration: formData.shiftDuration,
+        workingHours: `${formData.shiftStartTime} (${formData.shiftDuration}h)`,
         weeklyEarningRange: formData.weeklyEarningRange,
         upiId: formData.upiId,
         isOnboarded: true,
-        updatedAt: serverTimestamp(),
       });
 
       toast.success("Welcome to RoziRakshak!");
