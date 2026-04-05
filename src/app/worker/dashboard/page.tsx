@@ -21,6 +21,9 @@ import toast from "react-hot-toast";
 import { useWorkerTheme } from "../layout";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { getActivePolicyByWorker, getClaimsByWorker } from "@/lib/firestore";
+import type { Claim } from "@/types/claim";
+import type { Policy } from "@/types/policy";
 
 const triggers = [
   { icon: CloudRain, label: "Rain", status: "active", color: "#3b82f6" },
@@ -28,23 +31,6 @@ const triggers = [
   { icon: Wind, label: "AQI", status: "warning", color: "#8b5cf6" },
   { icon: MapPin, label: "Zone", status: "normal", color: "#ef4444" },
   { icon: Wifi, label: "Platform", status: "normal", color: "#06b6d4" },
-];
-
-const recentClaims = [
-  {
-    id: "cl_001",
-    type: "Heavy Rain",
-    date: "18 Mar",
-    amount: 750,
-    status: "auto_approved",
-  },
-  {
-    id: "cl_004",
-    type: "Platform Outage",
-    date: "19 Mar",
-    amount: 500,
-    status: "auto_approved",
-  },
 ];
 
 const statusLabel: Record<string, string> = {
@@ -59,13 +45,45 @@ const statusClass: Record<string, string> = {
   auto_approved: "status-approved",
   under_review: "status-reviewing",
   approved: "status-approved",
+  paid: "status-approved",
   held: "status-held",
   denied: "status-denied",
 };
 
+const triggerTypeLabel: Record<string, string> = {
+  heavy_rain: "Heavy Rain",
+  extreme_heat: "Extreme Heat",
+  hazardous_aqi: "Hazardous AQI",
+  zone_closure: "Zone Closure",
+  platform_outage: "Platform Outage",
+};
+
+function toDate(input: unknown): Date | null {
+  if (!input) return null;
+  if (typeof input === "string") return new Date(input);
+  if (typeof input === "object" && input !== null && "seconds" in input) {
+    return new Date((input as { seconds: number }).seconds * 1000);
+  }
+  return null;
+}
+
+function formatClaimDate(input: unknown): string {
+  const date = toDate(input);
+  if (!date || Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
+function formatPlanName(plan: string): string {
+  if (!plan) return "No Plan";
+  return `${plan.charAt(0).toUpperCase()}${plan.slice(1)} Plan`;
+}
+
 export default function WorkerDashboard() {
   const { theme, setTheme } = useWorkerTheme();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
+  const [activePolicy, setActivePolicy] = useState<Policy | null>(null);
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
 
   // Dismissable dark-mode banner
   const DISMISS_KEY = "worker-dark-tip-dismissed";
@@ -75,6 +93,55 @@ export default function WorkerDashboard() {
     const dismissed = localStorage.getItem(DISMISS_KEY) === "1";
     setBannerDismissed(dismissed);
   }, []);
+
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      if (!user) {
+        setLoadingData(false);
+        return;
+      }
+
+      try {
+        const [policy, workerClaims] = await Promise.all([
+          getActivePolicyByWorker(user.uid),
+          getClaimsByWorker(user.uid),
+        ]);
+
+        setActivePolicy(policy);
+
+        const sortedClaims = [...workerClaims].sort((a, b) => {
+          const aTime = toDate(a.createdAt)?.getTime() ?? 0;
+          const bTime = toDate(b.createdAt)?.getTime() ?? 0;
+          return bTime - aTime;
+        });
+
+        setClaims(sortedClaims);
+      } catch (error) {
+        console.error("Failed to load dashboard data:", error);
+        toast.error("Could not load live dashboard data.");
+      } finally {
+        setLoadingData(false);
+      }
+    };
+
+    void loadDashboardData();
+  }, [user]);
+
+  const recentClaims = claims.slice(0, 2).map((claim) => ({
+    id: claim.id,
+    type: triggerTypeLabel[claim.triggerType] || claim.triggerType,
+    date: formatClaimDate(claim.createdAt),
+    amount: claim.payoutAmount || 0,
+    status: claim.status,
+  }));
+
+  const totalProtected = claims
+    .filter((claim) => (claim.payoutAmount || 0) > 0)
+    .reduce((sum, claim) => sum + (claim.payoutAmount || 0), 0);
+
+  const autoApprovedCount = claims.filter(
+    (claim) => claim.status === "auto_approved" || claim.status === "approved" || claim.status === "paid"
+  ).length;
 
   const dismissBanner = () => {
     setBannerDismissed(true);
@@ -158,14 +225,18 @@ export default function WorkerDashboard() {
         <div className="relative z-10">
           <div className="flex items-center gap-2 mb-3">
             <Shield className="w-5 h-5 text-white/80" />
-            <span className="text-sm text-white/80 font-medium">Active Cover — Core Plan</span>
+            <span className="text-sm text-white/80 font-medium">
+              Active Cover — {formatPlanName(activePolicy?.plan || "")}
+            </span>
           </div>
-          <p className="text-3xl font-bold text-white mb-1">₹1,500</p>
+          <p className="text-3xl font-bold text-white mb-1">
+            ₹{activePolicy?.maxProtection ?? 0}
+          </p>
           <p className="text-sm text-white/70">Max weekly protection</p>
           <div className="flex items-center gap-4 mt-4 text-sm text-white/80">
-            <span>Premium: ₹39</span>
+            <span>Premium: ₹{activePolicy?.premium ?? 0}</span>
             <span>•</span>
-            <span>Expires: 23 Mar</span>
+            <span>Expires: {formatClaimDate(activePolicy?.weekEnd)}</span>
           </div>
         </div>
       </motion.div>
@@ -215,9 +286,11 @@ export default function WorkerDashboard() {
         </div>
         <div className="flex items-baseline gap-1">
           <IndianRupee className="w-5 h-5 text-foreground" />
-          <span className="text-2xl font-bold text-foreground">1,250</span>
+          <span className="text-2xl font-bold text-foreground">{totalProtected}</span>
         </div>
-        <p className="text-xs text-muted-foreground mt-1">2 claims auto-approved</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          {loadingData ? "Loading claims..." : `${autoApprovedCount} claims auto-approved`}
+        </p>
       </motion.div>
 
       {/* Recent Claims */}
@@ -231,6 +304,9 @@ export default function WorkerDashboard() {
           </Link>
         </div>
         <div className="space-y-2">
+          {recentClaims.length === 0 && !loadingData && (
+            <div className="glass rounded-xl p-4 text-sm text-muted-foreground">No claims yet.</div>
+          )}
           {recentClaims.map((claim) => (
             <motion.div
               key={claim.id}
@@ -245,9 +321,9 @@ export default function WorkerDashboard() {
               <div className="text-right">
                 <p className="font-semibold text-sm text-foreground">+₹{claim.amount}</p>
                 <span
-                  className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${statusClass[claim.status]}`}
+                  className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${statusClass[claim.status] || "status-reviewing"}`}
                 >
-                  {statusLabel[claim.status]}
+                  {statusLabel[claim.status] || claim.status}
                 </span>
               </div>
             </motion.div>

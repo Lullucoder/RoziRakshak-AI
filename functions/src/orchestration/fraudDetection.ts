@@ -12,6 +12,72 @@ import { createDocument } from '../utils/firestore';
 const ML_SERVICE_URL = process.env.RENDER_ML_URL || 'https://ml-microservice-api.onrender.com';
 const FRAUD_TIMEOUT_MS = 5000;
 
+interface MLFraudResponse {
+  anomaly_score: number;
+  is_suspicious: boolean;
+  suspicion_level?: 'low' | 'medium' | 'high';
+  flags?: string[];
+  recommended_track?: string;
+  model_used?: string;
+}
+
+function mapSignalVectorToFraudPayload(signalVector: FraudSignalVector) {
+  return {
+    motion_variance: signalVector.motion_variance,
+    network_type: signalVector.network_type === 'wifi' ? 0 : 1,
+    gps_accuracy_radius: signalVector.gps_accuracy_m,
+    rtt_ms: signalVector.rtt_ms,
+    distance_from_home_cluster_km: signalVector.distance_from_home_km,
+    route_continuity_score: signalVector.route_continuity_score,
+    speed_between_pings_kmh: signalVector.speed_between_pings_kmh,
+    claim_frequency_7d: signalVector.claim_frequency_7d,
+    days_since_registration: signalVector.days_since_registration,
+    upi_changed_recently: signalVector.payout_account_change_days <= 7 ? 1 : 0,
+    simultaneous_claim_density_ratio: signalVector.simultaneous_claim_density_ratio,
+    shared_device_flag: signalVector.shared_device_count > 1 ? 1 : 0,
+    claim_timestamp_cluster_flag: signalVector.claim_timestamp_cluster_size >= 3 ? 1 : 0,
+    trigger_confirmed: 1,
+    zone_overlap: signalVector.historical_zone_match ? 1.0 : signalVector.zone_entry_plausibility,
+    emulator_flag: signalVector.emulator_flag ? 1 : 0,
+  };
+}
+
+function normalizeRiskLevel(score: number, level?: string): 'low' | 'medium' | 'high' {
+  if (level === 'low' || level === 'medium' || level === 'high') {
+    return level;
+  }
+
+  if (score >= 0.7) return 'high';
+  if (score >= 0.3) return 'medium';
+  return 'low';
+}
+
+function mapMlFraudResponse(claimId: string, result: MLFraudResponse): FraudDetectionResponse {
+  const anomaly_score = Number.isFinite(result.anomaly_score) ? result.anomaly_score : 0.5;
+  const risk_level = normalizeRiskLevel(anomaly_score, result.suspicion_level);
+  const flags = (result.flags ?? []).filter(Boolean);
+
+  return {
+    request_id: claimId,
+    status: 'success',
+    claim_id: claimId,
+    anomaly_score,
+    risk_level,
+    is_suspicious: Boolean(result.is_suspicious ?? anomaly_score >= 0.4),
+    top_contributing_features: (flags.length > 0 ? flags : ['Anomalous pattern detected'])
+      .slice(0, 5)
+      .map((flag) => ({
+        feature: flag,
+        contribution: 1.0,
+        reason: flag,
+      })),
+    model_used: result.model_used === 'isolation_forest' ? 'isolation_forest' : 'fallback_rules',
+    fallback_rules_triggered:
+      result.model_used && result.model_used !== 'isolation_forest' ? flags : undefined,
+    timestamp: new Date().toISOString(),
+  };
+}
+
 /**
  * Call fraud detection ML service with fallback logic
  */
@@ -27,6 +93,8 @@ export async function callFraudDetection(
   });
   
   try {
+    const mlPayload = mapSignalVectorToFraudPayload(signalVector);
+
     // Call ML service with timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), FRAUD_TIMEOUT_MS);
@@ -36,11 +104,7 @@ export async function callFraudDetection(
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        request_id: claimId,
-        claim_id: claimId,
-        features: signalVector
-      }),
+      body: JSON.stringify(mlPayload),
       signal: controller.signal as any
     });
     
@@ -50,7 +114,7 @@ export async function callFraudDetection(
       throw new Error(`ML service returned ${response.status}`);
     }
     
-    const result = await response.json() as FraudDetectionResponse;
+    const result = mapMlFraudResponse(claimId, await response.json() as MLFraudResponse);
     
     logger.info({
       service: 'claims-orchestrator',

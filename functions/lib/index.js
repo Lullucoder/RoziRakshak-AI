@@ -4,7 +4,7 @@
  * Claims Orchestration and Payout System
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.processPayout = exports.onClaimCreated = exports.onTriggerEventCreated = exports.manualTriggerMonitor = exports.monitorTriggers = void 0;
+exports.processPayout = exports.processClaimReEvaluations = exports.onClaimCreated = exports.onTriggerEventCreated = exports.manualTriggerMonitor = exports.monitorTriggers = void 0;
 // Export all Cloud Functions
 // Trigger Monitoring
 var scheduledMonitor_1 = require("./triggers/scheduledMonitor");
@@ -14,6 +14,8 @@ Object.defineProperty(exports, "manualTriggerMonitor", { enumerable: true, get: 
 var claimsOrchestrator_1 = require("./orchestration/claimsOrchestrator");
 Object.defineProperty(exports, "onTriggerEventCreated", { enumerable: true, get: function () { return claimsOrchestrator_1.onTriggerEventCreated; } });
 Object.defineProperty(exports, "onClaimCreated", { enumerable: true, get: function () { return claimsOrchestrator_1.onClaimCreated; } });
+var reEvaluationScheduler_1 = require("./orchestration/reEvaluationScheduler");
+Object.defineProperty(exports, "processClaimReEvaluations", { enumerable: true, get: function () { return reEvaluationScheduler_1.processClaimReEvaluations; } });
 // Payout Service
 var payoutService_1 = require("./payout/payoutService");
 Object.defineProperty(exports, "processPayout", { enumerable: true, get: function () { return payoutService_1.processPayout; } });

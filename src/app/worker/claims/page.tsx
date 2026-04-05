@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   CloudRain,
@@ -15,29 +15,11 @@ import {
 } from "lucide-react";
 import FaceReverificationModal from "@/components/FaceReverificationModal";
 import { useAuth } from "@/contexts/AuthContext";
-import { Timestamp } from "firebase/firestore";
+import { getClaimsByWorker } from "@/lib/firestore";
+import type { Claim } from "@/types/claim";
+import toast from "react-hot-toast";
 
 // ─── Static data ──────────────────────────────────────────────────────────────
-
-// Types
-interface Claim {
-  id: string;
-  workerId: string;
-  workerName: string;
-  triggerType: string;
-  triggerSeverity: string;
-  status: string;
-  zone: string;
-  city: string;
-  description: string;
-  confidenceScore?: number;
-  payoutAmount?: number;
-  holdReason?: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-  resolvedAt?: Timestamp;
-  paidAt?: Timestamp;
-}
 
 // Icon mapping
 const iconMap: Record<string, React.ElementType> = {
@@ -102,14 +84,26 @@ const claims = [
 const statusConfig: Record<string, { label: string; class: string }> = {
   auto_approved: { label: "Auto Approved", class: "status-approved" },
   approved: { label: "Approved", class: "status-approved" },
+  paid: { label: "Paid", class: "status-approved" },
   under_review: { label: "Under Review", class: "status-reviewing" },
   soft_review: { label: "Soft Review", class: "status-reviewing" },
+  pending_fraud_check: { label: "Fraud Check", class: "status-reviewing" },
+  payout_initiated: { label: "Payout Initiated", class: "status-reviewing" },
   held: { label: "Held", class: "status-held" },
   denied: { label: "Denied", class: "status-denied" },
 };
 
 /** Claims that offer the face re-verification boost */
-const BOOSTABLE_STATUSES = new Set(["soft_review", "held"]);
+const BOOSTABLE_STATUSES = new Set(["soft_review", "held", "under_review", "pending_fraud_check"]);
+
+function toDate(input: unknown): Date | null {
+  if (!input) return null;
+  if (typeof input === "string") return new Date(input);
+  if (typeof input === "object" && input !== null && "seconds" in input) {
+    return new Date((input as { seconds: number }).seconds * 1000);
+  }
+  return null;
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -118,12 +112,41 @@ export default function ClaimsPage() {
   const uid = user?.uid ?? "worker-demo-001";
   const workerName = user?.displayName ?? "Worker";
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [activeClaim, setActiveClaim] = useState<(typeof claims)[0] | null>(
-    null
-  );
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const openModal = (claim: (typeof claims)[0]) => {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [activeClaim, setActiveClaim] = useState<Claim | null>(null);
+
+  useEffect(() => {
+    const loadClaims = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const workerClaims = await getClaimsByWorker(user.uid);
+        const sortedClaims = [...workerClaims].sort((a, b) => {
+          const aTime = toDate(a.createdAt)?.getTime() ?? 0;
+          const bTime = toDate(b.createdAt)?.getTime() ?? 0;
+          return bTime - aTime;
+        });
+        setClaims(sortedClaims);
+      } catch (error) {
+        console.error("Failed to load claims:", error);
+        toast.error("Could not load claim history.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadClaims();
+  }, [user]);
+
+  const totalReceived = claims.reduce((sum, claim) => sum + (claim.payoutAmount || 0), 0);
+
+  const openModal = (claim: Claim) => {
     setActiveClaim(claim);
     setModalOpen(true);
   };
@@ -156,18 +179,30 @@ export default function ClaimsPage() {
             <p className="text-xs text-muted-foreground mb-1">Total Received</p>
             <div className="flex items-center gap-1">
               <IndianRupee className="w-4 h-4 text-accent" />
-              <p className="text-2xl font-bold text-accent">1,250</p>
+              <p className="text-2xl font-bold text-accent">{totalReceived}</p>
             </div>
           </div>
         </div>
 
         {/* Claims List */}
         <div className="space-y-3">
+          {loading && (
+            <div className="glass rounded-2xl p-4 text-sm text-muted-foreground">
+              Loading claims...
+            </div>
+          )}
+          {!loading && claims.length === 0 && (
+            <div className="glass rounded-2xl p-4 text-sm text-muted-foreground">
+              No claims found for this account yet.
+            </div>
+          )}
           {claims.map((claim, i) => {
             const Icon = iconMap[claim.triggerType] || FileText;
             const color = colorMap[claim.triggerType] || "#888";
             const st = statusConfig[claim.status] || statusConfig.under_review;
             const isBoostable = BOOSTABLE_STATUSES.has(claim.status);
+            const createdAtDate = toDate(claim.createdAt);
+            const confidencePct = Math.round((claim.confidenceScore || 0) * 100);
 
             return (
               <motion.div
@@ -192,15 +227,14 @@ export default function ClaimsPage() {
                           {typeLabel[claim.triggerType]}
                         </p>
                         <p className="text-[10px] text-muted-foreground">
-                          {new Date(claim.createdAt).toLocaleDateString(
-                            "en-IN",
-                            {
-                              day: "numeric",
-                              month: "short",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            }
-                          )}
+                          {createdAtDate
+                            ? createdAtDate.toLocaleDateString("en-IN", {
+                                day: "numeric",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "—"}
                         </p>
                       </div>
                       <span
@@ -216,13 +250,14 @@ export default function ClaimsPage() {
                       <div className="text-xs text-muted-foreground">
                         Confidence:{" "}
                         <strong className="text-foreground">
-                          {(claim.confidenceScore * 100).toFixed(0)}%
+                          {confidencePct}%
                         </strong>
                       </div>
                       {claim.payoutAmount > 0 &&
                         claim.status !== "soft_review" &&
                         claim.status !== "held" &&
-                        claim.status !== "under_review" && (
+                        claim.status !== "under_review" &&
+                        claim.status !== "pending_fraud_check" && (
                           <div className="flex items-center gap-1 text-sm font-semibold text-accent">
                             <IndianRupee className="w-3.5 h-3.5" />
                             {claim.payoutAmount}
@@ -230,7 +265,8 @@ export default function ClaimsPage() {
                         )}
                       {(claim.status === "soft_review" ||
                         claim.status === "held" ||
-                        claim.status === "under_review") && (
+                        claim.status === "under_review" ||
+                        claim.status === "pending_fraud_check") && (
                         <span className="text-xs text-warning font-medium">
                           Pending…
                         </span>
@@ -312,7 +348,7 @@ export default function ClaimsPage() {
           onClose={closeModal}
           claimId={activeClaim.id}
           uid={uid}
-          currentConfidenceScore={activeClaim.confidenceScore}
+          currentConfidenceScore={activeClaim.confidenceScore || 0}
           workerName={workerName}
         />
       )}

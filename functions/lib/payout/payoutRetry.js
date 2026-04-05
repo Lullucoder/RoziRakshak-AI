@@ -3,39 +3,6 @@
  * Payout Retry Logic
  * Implements exponential backoff retry for failed payouts
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.schedulePayoutRetry = schedulePayoutRetry;
 exports.executePayoutRetry = executePayoutRetry;
@@ -114,7 +81,7 @@ async function executePayoutRetry(retryId, retry) {
             executedAt: firestore_1.Timestamp.now()
         });
         // Get payout document
-        const payout = await getDocument('payouts', payoutId);
+        const payout = await (0, firestore_1.getDocument)('payouts', payoutId);
         if (!payout) {
             throw new Error('Payout document not found');
         }
@@ -156,18 +123,11 @@ async function executePayoutRetry(retryId, retry) {
             result: error.message
         });
         // Get updated payout to check retry count
-        const payout = await getDocument('payouts', payoutId);
+        const payout = await (0, firestore_1.getDocument)('payouts', payoutId);
         if (payout) {
             // Schedule next retry if attempts remaining
             await schedulePayoutRetry(payoutId, payout);
         }
     }
-}
-/**
- * Get document helper (imported from utils)
- */
-async function getDocument(collection, docId) {
-    const { getDocument: getDoc } = await Promise.resolve().then(() => __importStar(require('../utils/firestore')));
-    return getDoc(collection, docId);
 }
 //# sourceMappingURL=payoutRetry.js.map

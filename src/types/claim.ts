@@ -5,11 +5,19 @@ import { TriggerType, TriggerSeverity } from "./trigger";
 
 /** Lifecycle status of a parametric claim. */
 export type ClaimStatus =
+  | "pending_fraud_check"
   | "auto_approved"
+  | "soft_review"
   | "under_review"
   | "approved"
+  | "under_appeal"
+  | "payout_initiated"
+  | "payout_failed"
+  | "paid"
   | "held"
-  | "denied";
+  | "denied"
+  | "rejected"
+  | "error";
 
 // ─── Claim Document ──────────────────────────────────────────────────────────
 
@@ -30,7 +38,7 @@ export interface Claim extends BaseDocument {
   policyId: string;
 
   /** Trigger event that initiated this claim. */
-  triggerEventId: string;
+  triggerEventId: string | null;
 
   /** Category of the triggering disruption. */
   triggerType: TriggerType;
@@ -48,7 +56,7 @@ export interface Claim extends BaseDocument {
    * - 0.40 – 0.74 → Track B (soft review, 2-hour window)
    * - < 0.40 → Track C (held for investigation)
    */
-  confidenceScore: number;
+  confidenceScore: number | null;
 
   /** Calculated payout amount in ₹. 0 if not yet determined or denied. */
   payoutAmount: number;
@@ -59,9 +67,15 @@ export interface Claim extends BaseDocument {
   /** Affected delivery zone name. */
   zone: string;
 
+  /** Claim city for admin filtering and analytics views. */
+  city?: string;
+
   /** Human-readable claim description / reason. */
   description: string;
 
   /** When the claim was resolved (approved / denied). `null` if pending. */
   resolvedAt: FirestoreTimestamp | null;
+
+  /** Optional reason shown when a claim is held or errored. */
+  holdReason?: string | null;
 }

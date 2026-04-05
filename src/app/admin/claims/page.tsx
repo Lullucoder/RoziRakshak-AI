@@ -1,53 +1,143 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Search, Filter, CheckCircle, Clock, XCircle, Eye } from "lucide-react";
 import toast from "react-hot-toast";
-
-const claims = [
-  {
-    id: "cl_001", worker: "Arjun K.", trigger: "Heavy Rain", zone: "Koramangala, BLR",
-    confidence: 0.92, payout: 750, status: "auto_approved", date: "18 Mar, 20:15",
-  },
-  {
-    id: "cl_002", worker: "Priya S.", trigger: "Extreme Heat", zone: "CP, DEL",
-    confidence: 0.68, payout: 450, status: "approved", date: "17 Mar, 16:30",
-  },
-  {
-    id: "cl_003", worker: "Rahul M.", trigger: "Hazardous AQI", zone: "Anand Vihar, DEL",
-    confidence: 0.55, payout: 900, status: "under_review", date: "15 Mar, 23:30",
-  },
-  {
-    id: "cl_004", worker: "Deepak V.", trigger: "Platform Outage", zone: "Indiranagar, BLR",
-    confidence: 0.95, payout: 500, status: "auto_approved", date: "19 Mar, 21:45",
-  },
-  {
-    id: "cl_005", worker: "Suresh P.", trigger: "Heavy Rain", zone: "Koramangala, BLR",
-    confidence: 0.32, payout: 0, status: "held", date: "18 Mar, 20:30",
-  },
-];
+import { useAuth } from "@/contexts/AuthContext";
+import { getAllClaims } from "@/lib/firestore";
+import type { Claim } from "@/types/claim";
 
 const statusConfig: Record<string, { label: string; class: string; icon: React.ElementType }> = {
   auto_approved: { label: "Auto Approved", class: "status-approved", icon: CheckCircle },
   approved: { label: "Approved", class: "status-approved", icon: CheckCircle },
+  paid: { label: "Paid", class: "status-approved", icon: CheckCircle },
+  payout_initiated: { label: "Payout Initiated", class: "status-reviewing", icon: Clock },
+  pending_fraud_check: { label: "Fraud Check", class: "status-reviewing", icon: Clock },
   under_review: { label: "Under Review", class: "status-reviewing", icon: Clock },
+  under_appeal: { label: "Under Appeal", class: "status-reviewing", icon: Clock },
   held: { label: "Held", class: "status-held", icon: XCircle },
   denied: { label: "Denied", class: "status-denied", icon: XCircle },
+  rejected: { label: "Rejected", class: "status-denied", icon: XCircle },
+  error: { label: "Error", class: "status-denied", icon: XCircle },
+};
+
+const triggerTypeLabel: Record<string, string> = {
+  heavy_rain: "Heavy Rain",
+  extreme_heat: "Extreme Heat",
+  hazardous_aqi: "Hazardous AQI",
+  zone_closure: "Zone Closure",
+  platform_outage: "Platform Outage",
+};
+
+function toDate(input: unknown): Date | null {
+  if (!input) return null;
+  if (typeof input === "string") return new Date(input);
+  if (typeof input === "object" && input !== null && "seconds" in input) {
+    return new Date((input as { seconds: number }).seconds * 1000);
+  }
+  return null;
+}
+
+function formatClaimDate(input: unknown): string {
+  const date = toDate(input);
+  if (!date || Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 };
 
 export default function AdminClaimsPage() {
+  const { user } = useAuth();
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [actioningId, setActioningId] = useState<string | null>(null);
 
-  const filtered = claims.filter((c) => {
-    if (filterStatus !== "all" && c.status !== filterStatus) return false;
-    if (searchQuery && !c.worker.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    return true;
-  });
+  const loadClaims = async () => {
+    try {
+      setLoading(true);
+      const allClaims = await getAllClaims();
+      const sortedClaims = [...allClaims].sort((a, b) => {
+        const aTime = toDate(a.createdAt)?.getTime() ?? 0;
+        const bTime = toDate(b.createdAt)?.getTime() ?? 0;
+        return bTime - aTime;
+      });
+      setClaims(sortedClaims);
+    } catch (error) {
+      console.error("Failed to load claims:", error);
+      toast.error("Failed to load claims");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const handleAction = (id: string, action: string) => {
-    toast.success(`Claim ${id} ${action}`);
+  useEffect(() => {
+    void loadClaims();
+  }, []);
+
+  const filtered = useMemo(
+    () =>
+      claims.filter((claim) => {
+        if (filterStatus !== "all" && claim.status !== filterStatus) return false;
+        if (!searchQuery) return true;
+
+        const haystack = [
+          claim.workerName || "",
+          claim.workerId || "",
+          claim.zone || "",
+          claim.city || "",
+          claim.id || "",
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        return haystack.includes(searchQuery.toLowerCase());
+      }),
+    [claims, filterStatus, searchQuery]
+  );
+
+  const handleAction = async (id: string, decision: "approve" | "reject") => {
+    if (!user) {
+      toast.error("Please log in as admin to review claims.");
+      return;
+    }
+
+    setActioningId(id);
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch(`/api/claims/${id}/review`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          decision,
+          admin_note:
+            decision === "approve"
+              ? "Approved from admin claims console"
+              : "Rejected from admin claims console",
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.message || `Review API failed with ${response.status}`);
+      }
+
+      toast.success(`Claim ${id} ${decision === "approve" ? "approved" : "rejected"}`);
+      await loadClaims();
+    } catch (error: any) {
+      console.error("Review action failed:", error);
+      toast.error(error?.message || "Failed to process review action");
+    } finally {
+      setActioningId(null);
+    }
   };
 
   return (
@@ -71,7 +161,7 @@ export default function AdminClaimsPage() {
         </div>
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-muted-foreground" />
-          {["all", "under_review", "held", "auto_approved"].map((s) => (
+          {["all", "pending_fraud_check", "under_review", "held", "auto_approved"].map((s) => (
             <button
               key={s}
               onClick={() => setFilterStatus(s)}
@@ -81,7 +171,15 @@ export default function AdminClaimsPage() {
                   : "bg-muted text-muted-foreground hover:text-foreground"
               }`}
             >
-              {s === "all" ? "All" : s === "under_review" ? "Review" : s === "held" ? "Held" : "Approved"}
+              {s === "all"
+                ? "All"
+                : s === "pending_fraud_check"
+                ? "Fraud Check"
+                : s === "under_review"
+                ? "Review"
+                : s === "held"
+                ? "Held"
+                : "Approved"}
             </button>
           ))}
         </div>
@@ -104,8 +202,24 @@ export default function AdminClaimsPage() {
               </tr>
             </thead>
             <tbody>
+              {loading && (
+                <tr>
+                  <td colSpan={8} className="px-5 py-6 text-center text-muted-foreground">
+                    Loading claims...
+                  </td>
+                </tr>
+              )}
+              {!loading && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-5 py-6 text-center text-muted-foreground">
+                    No claims match the selected filters.
+                  </td>
+                </tr>
+              )}
               {filtered.map((claim, i) => {
-                const st = statusConfig[claim.status];
+                const st = statusConfig[claim.status] || statusConfig.under_review;
+                const confidence = claim.confidenceScore || 0;
+                const payout = claim.payoutAmount || 0;
                 return (
                   <motion.tr
                     key={claim.id}
@@ -115,30 +229,30 @@ export default function AdminClaimsPage() {
                     transition={{ delay: i * 0.05 }}
                   >
                     <td className="px-5 py-4 font-mono text-xs text-muted-foreground">{claim.id}</td>
-                    <td className="px-5 py-4 font-medium">{claim.worker}</td>
-                    <td className="px-5 py-4">{claim.trigger}</td>
-                    <td className="px-5 py-4 text-xs text-muted-foreground">{claim.zone}</td>
+                    <td className="px-5 py-4 font-medium">{claim.workerName || claim.workerId}</td>
+                    <td className="px-5 py-4">{triggerTypeLabel[claim.triggerType] || claim.triggerType}</td>
+                    <td className="px-5 py-4 text-xs text-muted-foreground">{claim.zone || "—"}</td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
                         <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
                           <div
                             className="h-full rounded-full"
                             style={{
-                              width: `${claim.confidence * 100}%`,
+                              width: `${confidence * 100}%`,
                               background:
-                                claim.confidence >= 0.75
+                                confidence >= 0.75
                                   ? "#10b981"
-                                  : claim.confidence >= 0.4
+                                  : confidence >= 0.4
                                   ? "#f59e0b"
                                   : "#ef4444",
                             }}
                           />
                         </div>
-                        <span className="text-xs">{(claim.confidence * 100).toFixed(0)}%</span>
+                        <span className="text-xs">{(confidence * 100).toFixed(0)}%</span>
                       </div>
                     </td>
                     <td className="px-5 py-4 font-semibold">
-                      {claim.payout > 0 ? `₹${claim.payout}` : "—"}
+                      {payout > 0 ? `₹${payout}` : "—"}
                     </td>
                     <td className="px-5 py-4">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold ${st.class}`}>
@@ -148,25 +262,35 @@ export default function AdminClaimsPage() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1">
-                        {(claim.status === "under_review" || claim.status === "held") && (
+                        {(claim.status === "under_review" || claim.status === "held" || claim.status === "under_appeal") && (
                           <>
                             <button
-                              onClick={() => handleAction(claim.id, "approved")}
+                              onClick={() => handleAction(claim.id, "approve")}
+                              disabled={actioningId === claim.id}
                               className="p-1.5 rounded-lg bg-[rgba(16,185,129,0.1)] text-accent hover:bg-[rgba(16,185,129,0.2)] transition-colors"
                               title="Approve"
                             >
                               <CheckCircle className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => handleAction(claim.id, "held for investigation")}
+                              onClick={() => handleAction(claim.id, "reject")}
+                              disabled={actioningId === claim.id}
                               className="p-1.5 rounded-lg bg-[rgba(239,68,68,0.1)] text-destructive hover:bg-[rgba(239,68,68,0.2)] transition-colors"
-                              title="Hold"
+                              title="Reject"
                             >
                               <XCircle className="w-4 h-4" />
                             </button>
                           </>
                         )}
-                        <button className="p-1.5 rounded-lg hover:bg-muted transition-colors" title="View Details">
+                        <button
+                          className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+                          title="View Details"
+                          onClick={() =>
+                            toast(
+                              `${claim.id} · ${triggerTypeLabel[claim.triggerType] || claim.triggerType} · ${formatClaimDate(claim.createdAt)}`
+                            )
+                          }
+                        >
                           <Eye className="w-4 h-4 text-muted-foreground" />
                         </button>
                       </div>

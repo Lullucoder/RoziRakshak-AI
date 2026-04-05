@@ -22,6 +22,29 @@ const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
+interface MLPremiumFeatures {
+  city_tier: number;
+  zone_id: string;
+  week_of_year: number;
+  season_flag: 'summer' | 'monsoon' | 'winter' | 'spring';
+  forecasted_disruption_probability: number;
+  shift_start_hour: number;
+  shift_duration_hours: number;
+  declared_weekly_income_slab: 500 | 1000 | 1500 | 2000 | 2500;
+  claim_count_last_4_weeks: number;
+  trust_score: number;
+  days_since_registration: number;
+  prior_zone_disruption_density: number;
+}
+
+interface MLPremiumResponse {
+  premium_inr: number;
+  risk_tier: 'Low' | 'Medium' | 'High' | string;
+  top_reasons: string[];
+  plan_recommendation: string;
+  model_used: string;
+}
+
 /**
  * POST /api/claims/premium-quote
  */
@@ -99,7 +122,7 @@ export async function POST(request: NextRequest) {
     });
     
     // Build feature vector
-    const zoneId = worker.zone || 'zone_1';
+    const zoneId = normalizeZoneId(worker.zone);
     const cityTier = getCityTier(worker.city);
     
     // Calculate days since registration
@@ -139,7 +162,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Build complete feature vector
-    const features: PremiumFeatureVector = {
+    const fallbackFeatures: PremiumFeatureVector = {
       worker_id: workerId,
       zone_id: zoneId,
       city_tier: cityTier,
@@ -154,8 +177,26 @@ export async function POST(request: NextRequest) {
       week_of_year: weekOfYear,
       season_flag: seasonFlag
     };
+
+    const mlFeatures: MLPremiumFeatures = {
+      city_tier: getCityTierCode(worker.city),
+      zone_id: zoneId,
+      week_of_year: Math.max(1, Math.min(52, weekOfYear)),
+      season_flag: seasonFlag,
+      forecasted_disruption_probability: Math.max(0, Math.min(1, disruptionProbability)),
+      shift_start_hour: getShiftStartHour(worker),
+      shift_duration_hours: getShiftDuration(worker),
+      declared_weekly_income_slab: getIncomeSlabValue(worker),
+      claim_count_last_4_weeks: Number(worker.claimCountLast4Weeks || 0),
+      trust_score: Math.max(0, Math.min(1, Number(worker.trustScore || 0.8))),
+      days_since_registration: Math.max(1, daysSinceRegistration),
+      prior_zone_disruption_density: Math.max(0, Math.min(1, Number(worker.priorZoneDisruptionDensity || 0.1))),
+    };
     
-    console.log('[Premium Quote] Feature vector built:', features);
+    console.log('[Premium Quote] Feature vectors built:', {
+      fallbackFeatures,
+      mlFeatures
+    });
     
     // Step 5: Call ML premium engine
     let quote: PremiumQuote | null = null;
@@ -166,16 +207,18 @@ export async function POST(request: NextRequest) {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(features),
+          body: JSON.stringify(mlFeatures),
           signal: AbortSignal.timeout(ML_TIMEOUT_MS)
         }
       );
       
       if (premiumResponse.ok) {
-        quote = await premiumResponse.json();
+        const mlResponse = await premiumResponse.json() as MLPremiumResponse;
+        quote = mapMlPremiumToQuote(workerId, zoneId, cityTier, mlFeatures, mlResponse);
         console.log('[Premium Quote] ML service response received');
       } else {
-        console.warn('[Premium Quote] ML service returned error:', premiumResponse.status);
+        const body = await premiumResponse.text();
+        console.warn('[Premium Quote] ML service returned error:', premiumResponse.status, body);
       }
     } catch (error: any) {
       console.warn('[Premium Quote] ML service call failed:', error.message);
@@ -186,7 +229,7 @@ export async function POST(request: NextRequest) {
       console.log('[Premium Quote] Using fallback premium engine');
       
       try {
-        quote = calculateFallbackPremium(features);
+        quote = calculateFallbackPremium(fallbackFeatures);
       } catch (error: any) {
         console.error('[Premium Quote] Fallback engine failed:', error.message);
         
@@ -242,6 +285,13 @@ function getCityTier(city: string): string {
   return 'tier_3';
 }
 
+function getCityTierCode(city: string): 1 | 2 | 3 {
+  const tier = getCityTier(city);
+  if (tier === 'tier_1') return 1;
+  if (tier === 'tier_2') return 2;
+  return 3;
+}
+
 /**
  * Get week of year (1-52)
  */
@@ -254,12 +304,124 @@ function getWeekOfYear(date: Date): number {
 /**
  * Get season flag
  */
-function getSeason(date: Date): string {
+function getSeason(date: Date): 'summer' | 'monsoon' | 'winter' | 'spring' {
   const month = date.getMonth() + 1; // 1-12
   
   // Indian seasons
   if (month >= 3 && month <= 5) return 'summer';
   if (month >= 6 && month <= 9) return 'monsoon';
-  if (month >= 10 && month <= 11) return 'autumn';
+  if (month >= 10 && month <= 11) return 'spring';
   return 'winter';
+}
+
+function normalizeZoneId(rawZone: string | undefined): string {
+  if (!rawZone) return 'zone_001';
+  const trimmed = rawZone.trim().toLowerCase();
+  const zoneMatch = trimmed.match(/^zone[_\-]?(\d{1,3})$/);
+  if (zoneMatch) {
+    return `zone_${zoneMatch[1].padStart(3, '0')}`;
+  }
+
+  const slug = trimmed
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  return slug ? slug : 'zone_001';
+}
+
+function getShiftStartHour(worker: any): number {
+  if (typeof worker.shiftStartHour === 'number') {
+    return Math.max(0, Math.min(23, worker.shiftStartHour));
+  }
+
+  const workingHours = String(worker.workingHours || '').toLowerCase();
+  if (workingHours.includes('morning')) return 8;
+  if (workingHours.includes('afternoon')) return 13;
+  if (workingHours.includes('evening')) return 18;
+  if (workingHours.includes('full_day')) return 9;
+  return 9;
+}
+
+function getShiftDuration(worker: any): number {
+  if (typeof worker.shiftDurationHours === 'number') {
+    return Math.max(4, Math.min(12, worker.shiftDurationHours));
+  }
+
+  const workingHours = String(worker.workingHours || '').toLowerCase();
+  if (workingHours.includes('full_day')) return 10;
+  return 8;
+}
+
+function getIncomeSlabValue(worker: any): 500 | 1000 | 1500 | 2000 | 2500 {
+  const explicit = Number(worker.declaredWeeklyIncomeSlab || worker.weeklyIncomeSlabValue);
+  const valid = [500, 1000, 1500, 2000, 2500];
+  if (valid.includes(explicit)) {
+    return explicit as 500 | 1000 | 1500 | 2000 | 2500;
+  }
+
+  const weeklyRange = String(worker.weeklyEarningRange || worker.weeklyIncomeSlab || '').toLowerCase();
+  if (weeklyRange.includes('12,000') || weeklyRange.includes('12000')) return 2500;
+  if (weeklyRange.includes('8,000') || weeklyRange.includes('8000')) return 2000;
+  if (weeklyRange.includes('6,000') || weeklyRange.includes('6000')) return 1500;
+  if (weeklyRange.includes('4,000') || weeklyRange.includes('4000')) return 1000;
+  return 500;
+}
+
+function mapMlPremiumToQuote(
+  workerId: string,
+  zoneId: string,
+  cityTier: string,
+  features: MLPremiumFeatures,
+  mlResponse: MLPremiumResponse
+): PremiumQuote {
+  const basePremium = Math.max(19, Math.round(Number(mlResponse.premium_inr || 39)));
+  const litePremium = Math.max(19, Math.round(basePremium * 0.72));
+  const standardPremium = Math.max(29, Math.round(basePremium));
+  const premiumPremium = Math.max(49, Math.round(basePremium * 1.55));
+
+  const maxProtection = {
+    lite: 800,
+    standard: 1500,
+    premium: 2500,
+  };
+
+  const liteExpectedPayout = Math.round(maxProtection.lite * features.forecasted_disruption_probability);
+  const standardExpectedPayout = Math.round(maxProtection.standard * features.forecasted_disruption_probability);
+  const premiumExpectedPayout = Math.round(maxProtection.premium * features.forecasted_disruption_probability);
+
+  return {
+    request_id: `ml_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+    worker_id: workerId,
+    zone_id: zoneId,
+    city_tier: cityTier,
+    plans: {
+      lite: {
+        plan_name: 'Lite',
+        weekly_premium: litePremium,
+        max_weekly_protection: maxProtection.lite,
+        expected_payout: liteExpectedPayout,
+        roi_ratio: Number((liteExpectedPayout / litePremium).toFixed(2)),
+      },
+      standard: {
+        plan_name: 'Core',
+        weekly_premium: standardPremium,
+        max_weekly_protection: maxProtection.standard,
+        expected_payout: standardExpectedPayout,
+        roi_ratio: Number((standardExpectedPayout / standardPremium).toFixed(2)),
+      },
+      premium: {
+        plan_name: 'Peak',
+        weekly_premium: premiumPremium,
+        max_weekly_protection: maxProtection.premium,
+        expected_payout: premiumExpectedPayout,
+        roi_ratio: Number((premiumExpectedPayout / premiumPremium).toFixed(2)),
+      },
+    },
+    model_used: 'ml_model',
+    timestamp: new Date().toISOString(),
+    metadata: {
+      zone_risk_band: String(mlResponse.risk_tier || 'Medium').toLowerCase(),
+      disruption_probability: features.forecasted_disruption_probability,
+    },
+  };
 }

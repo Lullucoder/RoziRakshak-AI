@@ -1,30 +1,28 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle, Shield, Zap, ArrowRight, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { createPolicy, getActivePolicyByWorker } from "@/lib/firestore";
-import { serverTimestamp } from "firebase/firestore";
+import type { PremiumQuote } from "@/lib/premiumEngine";
 
 const plans = [
   {
     id: "lite",
     name: "Lite",
-    priceRange: "₹19–₹29",
-    price: 24,
-    protection: 800,
+    defaultPrice: 29,
+    defaultProtection: 800,
     ideal: "Part-time riders",
     features: ["All 5 triggers", "Up to ₹800/week", "Standard payout speed", "Basic trust rewards"],
   },
   {
     id: "core",
     name: "Core",
-    priceRange: "₹29–₹49",
-    price: 39,
-    protection: 1500,
+    defaultPrice: 49,
+    defaultProtection: 1500,
     ideal: "Regular riders",
     popular: true,
     features: ["All 5 triggers", "Up to ₹1,500/week", "Instant payout", "Trust discount eligible", "Priority support"],
@@ -32,26 +30,111 @@ const plans = [
   {
     id: "peak",
     name: "Peak",
-    priceRange: "₹49–₹79",
-    price: 64,
-    protection: 2500,
+    defaultPrice: 79,
+    defaultProtection: 2500,
     ideal: "Full-time riders",
     features: ["All 5 triggers", "Up to ₹2,500/week", "Instant payout", "Maximum trust rewards", "Priority support", "Multi-zone cover"],
   },
 ];
 
-const PLAN_VALUES: Record<string, { premiumInr: number; maxWeeklyProtectionInr: number }> = {
+const FALLBACK_PLAN_VALUES: Record<string, { premiumInr: number; maxWeeklyProtectionInr: number }> = {
   lite: { premiumInr: 29, maxWeeklyProtectionInr: 800 },
   core: { premiumInr: 49, maxWeeklyProtectionInr: 1500 },
   peak: { premiumInr: 79, maxWeeklyProtectionInr: 2500 },
 };
 
+function formatDate(input: unknown): string {
+  if (!input) return "—";
+  if (typeof input === "string") {
+    return new Date(input).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  }
+  if (typeof input === "object" && input !== null && "seconds" in input) {
+    return new Date((input as { seconds: number }).seconds * 1000).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
+  return "—";
+}
+
 export default function PolicyPage() {
   const router = useRouter();
   const { user, userProfile } = useAuth();
-  const [activePlan] = useState("core");
+  const [activePlan, setActivePlan] = useState<string | null>(null);
+  const [activePlanExpiry, setActivePlanExpiry] = useState<string>("—");
+  const [quote, setQuote] = useState<PremiumQuote | null>(null);
+  const [loadingQuote, setLoadingQuote] = useState(true);
   const [buying, setBuying] = useState(false);
   const [buyingPlanId, setBuyingPlanId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadPolicyAndQuote = async () => {
+      if (!user) {
+        setLoadingQuote(false);
+        return;
+      }
+
+      try {
+        const existingPolicy = await getActivePolicyByWorker(user.uid);
+        if (existingPolicy) {
+          setActivePlan(existingPolicy.plan);
+          setActivePlanExpiry(formatDate(existingPolicy.weekEnd));
+        } else {
+          setActivePlan(null);
+          setActivePlanExpiry("—");
+        }
+      } catch (error) {
+        console.error("Failed to load active policy:", error);
+      }
+
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch("/api/claims/premium-quote", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Premium quote API returned ${response.status}`);
+        }
+
+        const data = (await response.json()) as PremiumQuote;
+        setQuote(data);
+      } catch (error) {
+        console.error("Failed to fetch premium quote:", error);
+        toast.error("Using default pricing while quote service is unavailable.");
+      } finally {
+        setLoadingQuote(false);
+      }
+    };
+
+    void loadPolicyAndQuote();
+  }, [user]);
+
+  const planValues = useMemo(() => {
+    if (!quote) {
+      return FALLBACK_PLAN_VALUES;
+    }
+
+    return {
+      lite: {
+        premiumInr: quote.plans.lite.weekly_premium,
+        maxWeeklyProtectionInr: quote.plans.lite.max_weekly_protection,
+      },
+      core: {
+        premiumInr: quote.plans.standard.weekly_premium,
+        maxWeeklyProtectionInr: quote.plans.standard.max_weekly_protection,
+      },
+      peak: {
+        premiumInr: quote.plans.premium.weekly_premium,
+        maxWeeklyProtectionInr: quote.plans.premium.max_weekly_protection,
+      },
+    };
+  }, [quote]);
 
   const handleBuy = async (planId: string) => {
     // a. Guard checks
@@ -85,14 +168,14 @@ export default function PolicyPage() {
 
       // e. Map plan id to PlanTier (lowercase) and look up values
       const planName = planId.toLowerCase() as "lite" | "core" | "peak";
-      const planValues = PLAN_VALUES[planName];
+      const selectedPlanValues = planValues[planName];
 
       // f. Create the policy document in Firestore (field names match the Policy type)
       await createPolicy({
         workerId:      user.uid,
         plan:          planName,
-        premium:       planValues.premiumInr,
-        maxProtection: planValues.maxWeeklyProtectionInr,
+        premium:       selectedPlanValues.premiumInr,
+        maxProtection: selectedPlanValues.maxWeeklyProtectionInr,
         weekStart:     weekStartDate.toISOString(),
         weekEnd:       weekEndDate.toISOString(),
         status:        "active",
@@ -127,9 +210,19 @@ export default function PolicyPage() {
         </div>
         <div>
           <p className="text-sm font-semibold">
-            Current: <span className="gradient-text">Core Plan</span>
+            Current:{" "}
+            <span className="gradient-text">
+              {activePlan ? `${activePlan.charAt(0).toUpperCase()}${activePlan.slice(1)} Plan` : "No active plan"}
+            </span>
           </p>
-          <p className="text-xs text-muted-foreground">Active until 23 Mar 2026</p>
+          <p className="text-xs text-muted-foreground">
+            {activePlan ? `Active until ${activePlanExpiry}` : "Buy a weekly plan to activate protection"}
+          </p>
+          {quote && (
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Pricing source: {quote.model_used === "ml_model" ? "AI quote" : "Fallback quote"}
+            </p>
+          )}
         </div>
       </div>
 
@@ -158,8 +251,11 @@ export default function PolicyPage() {
                 <p className="text-xs text-muted-foreground">{plan.ideal}</p>
               </div>
               <div className="text-right">
-                <p className="text-xl font-bold gradient-text">{plan.priceRange}</p>
+                <p className="text-xl font-bold gradient-text">₹{planValues[plan.id].premiumInr}</p>
                 <p className="text-[10px] text-muted-foreground">/week</p>
+                <p className="text-[10px] text-muted-foreground">
+                  Cover ₹{planValues[plan.id].maxWeeklyProtectionInr}
+                </p>
               </div>
             </div>
 
@@ -174,14 +270,19 @@ export default function PolicyPage() {
 
             <button
               onClick={() => handleBuy(plan.id)}
-              disabled={buying}
+              disabled={buying || loadingQuote}
               className={`w-full py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all ${
                 activePlan === plan.id
                   ? "bg-muted border border-border text-muted-foreground cursor-default"
                   : "bg-gradient-to-r from-[#6c5ce7] to-[#a855f7] text-white hover:opacity-90"
               }`}
             >
-              {buying && buyingPlanId === plan.id ? (
+              {loadingQuote ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading quote...
+                </>
+              ) : buying && buyingPlanId === plan.id ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Activating...

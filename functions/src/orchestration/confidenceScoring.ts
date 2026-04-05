@@ -4,11 +4,95 @@
  */
 
 import fetch from 'node-fetch';
-import { FraudSignalVector, ConfidenceScoreFeatures, ConfidenceScoreResponse, FraudDetectionResponse } from '../types/fraud';
+import { FraudSignalVector, ConfidenceScoreResponse, FraudDetectionResponse } from '../types/fraud';
 import { logger } from '../utils/logger';
 
 const ML_SERVICE_URL = process.env.RENDER_ML_URL || 'https://ml-microservice-api.onrender.com';
 const CONFIDENCE_TIMEOUT_MS = 5000;
+
+interface MLConfidenceResponse {
+  confidence_score: number;
+  decision: 'auto_approve' | 'soft_review' | 'hold' | string;
+  top_contributing_factors?: Array<{
+    factor: string;
+    direction: 'positive' | 'negative' | string;
+    weight: number;
+  }>;
+  model_used?: string;
+}
+
+interface ConfidenceFallbackFeatures {
+  trigger_confirmed: boolean;
+  zone_overlap: boolean;
+  no_emulator: boolean;
+  speed_plausible: boolean;
+  no_duplicate: boolean;
+}
+
+function mapSignalVectorToConfidencePayload(
+  signalVector: FraudSignalVector,
+  fraudResult: FraudDetectionResponse
+) {
+  return {
+    motion_variance: signalVector.motion_variance,
+    network_type: signalVector.network_type === 'wifi' ? 0 : 1,
+    gps_accuracy_radius: signalVector.gps_accuracy_m,
+    rtt_ms: signalVector.rtt_ms,
+    distance_from_home_cluster_km: signalVector.distance_from_home_km,
+    route_continuity_score: signalVector.route_continuity_score,
+    speed_between_pings_kmh: signalVector.speed_between_pings_kmh,
+    claim_frequency_7d: signalVector.claim_frequency_7d,
+    days_since_registration: signalVector.days_since_registration,
+    upi_changed_recently: signalVector.payout_account_change_days <= 7 ? 1 : 0,
+    simultaneous_claim_density_ratio: signalVector.simultaneous_claim_density_ratio,
+    shared_device_flag: signalVector.shared_device_count > 1 ? 1 : 0,
+    claim_timestamp_cluster_flag: signalVector.claim_timestamp_cluster_size >= 3 ? 1 : 0,
+    trigger_confirmed: 1,
+    zone_overlap: signalVector.historical_zone_match ? 1.0 : signalVector.zone_entry_plausibility,
+    emulator_flag: signalVector.emulator_flag ? 1 : 0,
+    anomaly_score: fraudResult.anomaly_score,
+    is_suspicious: fraudResult.is_suspicious,
+  };
+}
+
+function getFallbackChecks(payload: ReturnType<typeof mapSignalVectorToConfidencePayload>): ConfidenceFallbackFeatures {
+  return {
+    trigger_confirmed: payload.trigger_confirmed === 1,
+    zone_overlap: payload.zone_overlap > 0.5,
+    no_emulator: payload.emulator_flag === 0,
+    speed_plausible: payload.speed_between_pings_kmh < 80,
+    no_duplicate: payload.shared_device_flag === 0,
+  };
+}
+
+function mapMlConfidenceResponse(claimId: string, result: MLConfidenceResponse): ConfidenceScoreResponse {
+  const topFactors = result.top_contributing_factors ?? [];
+
+  const mappedFeatures = topFactors.slice(0, 3).map((factor) => {
+    const sign = factor.direction === 'negative' ? -1 : 1;
+    return {
+      feature: factor.factor,
+      coefficient: sign * Math.abs(factor.weight),
+      reason: `${factor.factor} (${factor.direction})`,
+    };
+  });
+
+  const decision_track: 'auto_approve' | 'soft_review' | 'hold' =
+    result.decision === 'auto_approve' || result.decision === 'soft_review' || result.decision === 'hold'
+      ? result.decision
+      : 'soft_review';
+
+  return {
+    request_id: claimId,
+    status: 'success',
+    claim_id: claimId,
+    confidence_score: Number.isFinite(result.confidence_score) ? result.confidence_score : 0.5,
+    decision_track,
+    top_contributing_features: mappedFeatures,
+    model_used: result.model_used === 'logistic_regression' ? 'logistic_regression' : 'fallback_rules',
+    timestamp: new Date().toISOString(),
+  };
+}
 
 /**
  * Call confidence scoring ML service with fallback logic
@@ -25,18 +109,8 @@ export async function callConfidenceScorer(
     message: 'Calling confidence scoring service'
   });
   
-  // Build confidence features
-  const confidenceFeatures: ConfidenceScoreFeatures = {
-    trigger_confirmed: true, // From triggerEvent existence
-    zone_overlap_score: signalVector.historical_zone_match ? 1.0 : 0.0,
-    emulator_flag: signalVector.emulator_flag,
-    speed_plausible: signalVector.speed_between_pings_kmh <= 80,
-    duplicate_check_passed: true, // TODO: Implement duplicate detection
-    fraud_anomaly_score: fraudResult.anomaly_score,
-    historical_trust_score: 0.8, // Default, should come from worker profile
-    claim_frequency_7d: signalVector.claim_frequency_7d,
-    device_consistency_score: 0.8 // Default
-  };
+  const confidencePayload = mapSignalVectorToConfidencePayload(signalVector, fraudResult);
+  const fallbackChecks = getFallbackChecks(confidencePayload);
   
   try {
     // Call ML service with timeout
@@ -48,11 +122,7 @@ export async function callConfidenceScorer(
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        request_id: claimId,
-        claim_id: claimId,
-        features: confidenceFeatures
-      }),
+      body: JSON.stringify(confidencePayload),
       signal: controller.signal as any
     });
     
@@ -62,7 +132,7 @@ export async function callConfidenceScorer(
       throw new Error(`ML service returned ${response.status}`);
     }
     
-    const result = await response.json() as ConfidenceScoreResponse;
+    const result = mapMlConfidenceResponse(claimId, await response.json() as MLConfidenceResponse);
     
     logger.info({
       service: 'claims-orchestrator',
@@ -87,7 +157,7 @@ export async function callConfidenceScorer(
     });
     
     // Use fallback rule engine
-    return useConfidenceFallbackRules(claimId, confidenceFeatures);
+    return useConfidenceFallbackRules(claimId, fallbackChecks);
   }
 }
 
@@ -96,17 +166,8 @@ export async function callConfidenceScorer(
  */
 function useConfidenceFallbackRules(
   claimId: string,
-  features: ConfidenceScoreFeatures
+  checks: ConfidenceFallbackFeatures
 ): ConfidenceScoreResponse {
-  // 5 binary checks × 0.2 each
-  const checks = {
-    trigger_confirmed: features.trigger_confirmed,
-    zone_overlap: features.zone_overlap_score > 0.5,
-    no_emulator: !features.emulator_flag,
-    speed_plausible: features.speed_plausible,
-    no_duplicate: features.duplicate_check_passed
-  };
-  
   const confidence_score = Object.values(checks).filter(Boolean).length * 0.2;
   
   let decision_track: 'auto_approve' | 'soft_review' | 'hold';

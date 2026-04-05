@@ -3,7 +3,7 @@
  * Implements exponential backoff retry for failed payouts
  */
 
-import { createDocument, updateDocument, Timestamp } from '../utils/firestore';
+import { createDocument, updateDocument, Timestamp, getDocument } from '../utils/firestore';
 import { logger } from '../utils/logger';
 import { invokePayoutService } from './payoutService';
 import { Payout } from '../types/payout';
@@ -150,10 +150,3 @@ export async function executePayoutRetry(retryId: string, retry: any): Promise<v
   }
 }
 
-/**
- * Get document helper (imported from utils)
- */
-async function getDocument<T>(collection: string, docId: string): Promise<T | null> {
-  const { getDocument: getDoc } = await import('../utils/firestore');
-  return getDoc<T>(collection, docId);
-}

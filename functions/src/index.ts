@@ -10,6 +10,7 @@ export { monitorTriggers, manualTriggerMonitor } from './triggers/scheduledMonit
 
 // Claims Orchestration
 export { onTriggerEventCreated, onClaimCreated } from './orchestration/claimsOrchestrator';
+export { processClaimReEvaluations } from './orchestration/reEvaluationScheduler';
 
 // Payout Service
 export { processPayout } from './payout/payoutService';

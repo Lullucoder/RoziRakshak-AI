@@ -22,12 +22,81 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-// Singleton — reuse existing app when hot-reloading in dev
-const app: FirebaseApp =
-  getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+const REQUIRED_FIREBASE_PUBLIC_KEYS = [
+  "NEXT_PUBLIC_FIREBASE_API_KEY",
+  "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
+  "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
+  "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
+  "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
+  "NEXT_PUBLIC_FIREBASE_APP_ID",
+] as const;
 
-const auth: Auth = getAuth(app);
-const db: Firestore = getFirestore(app);
-const storage: FirebaseStorage = getStorage(app);
+const missingFirebasePublicKeys = REQUIRED_FIREBASE_PUBLIC_KEYS.filter(
+  (key) => !process.env[key]
+);
 
-export { app, auth, db, storage };
+const isFirebaseClientConfigured = missingFirebasePublicKeys.length === 0;
+
+let cachedApp: FirebaseApp | null = null;
+let cachedAuth: Auth | null = null;
+let cachedDb: Firestore | null = null;
+let cachedStorage: FirebaseStorage | null = null;
+
+function ensureFirebaseApp(): FirebaseApp {
+  if (cachedApp) return cachedApp;
+
+  if (getApps().length > 0) {
+    cachedApp = getApps()[0];
+    return cachedApp;
+  }
+
+  if (!isFirebaseClientConfigured) {
+    throw new Error(
+      `Firebase client config missing env vars: ${missingFirebasePublicKeys.join(", ")}`
+    );
+  }
+
+  cachedApp = initializeApp(firebaseConfig);
+  return cachedApp;
+}
+
+function createLazyServiceProxy<T extends object>(factory: () => T): T {
+  return new Proxy({} as T, {
+    get(_target, prop) {
+      const instance = factory() as Record<PropertyKey, unknown>;
+      const value = instance[prop];
+      if (typeof value === "function") {
+        return value.bind(instance);
+      }
+      return value;
+    },
+  });
+}
+
+function ensureAuth(): Auth {
+  if (!cachedAuth) {
+    cachedAuth = getAuth(ensureFirebaseApp());
+  }
+  return cachedAuth;
+}
+
+function ensureDb(): Firestore {
+  if (!cachedDb) {
+    cachedDb = getFirestore(ensureFirebaseApp());
+  }
+  return cachedDb;
+}
+
+function ensureStorage(): FirebaseStorage {
+  if (!cachedStorage) {
+    cachedStorage = getStorage(ensureFirebaseApp());
+  }
+  return cachedStorage;
+}
+
+const app: FirebaseApp = createLazyServiceProxy<FirebaseApp>(() => ensureFirebaseApp());
+const auth: Auth = createLazyServiceProxy<Auth>(() => ensureAuth());
+const db: Firestore = createLazyServiceProxy<Firestore>(() => ensureDb());
+const storage: FirebaseStorage = createLazyServiceProxy<FirebaseStorage>(() => ensureStorage());
+
+export { app, auth, db, storage, isFirebaseClientConfigured };
