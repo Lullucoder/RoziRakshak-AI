@@ -21,6 +21,10 @@ export type AuthErrorCode =
   | "invalid-phone"
   | "too-many-requests"
   | "recaptcha-failed"
+  | "unauthorized-domain"
+  | "provider-disabled"
+  | "quota-exceeded"
+  | "network"
   | "billing-not-enabled"
   | "invalid-otp"
   | "otp-expired"
@@ -93,9 +97,35 @@ function mapFirebaseError(err: unknown): AuthError {
     case "auth/captcha-check-failed":
     case "auth/recaptcha-not-enabled":
     case "auth/missing-recaptcha-token":
+    case "auth/invalid-app-credential":
+    case "auth/app-not-authorized":
       return new AuthError(
         "recaptcha-failed",
-        "reCAPTCHA verification failed. Please refresh and try again."
+        "reCAPTCHA verification failed. Disable ad blockers/privacy shields, allow third-party cookies, refresh the page, and try again."
+      );
+
+    case "auth/unauthorized-domain":
+      return new AuthError(
+        "unauthorized-domain",
+        "This domain is not authorized for Firebase Auth. Add your current host to Firebase Authentication > Settings > Authorized domains."
+      );
+
+    case "auth/operation-not-allowed":
+      return new AuthError(
+        "provider-disabled",
+        "Phone sign-in is not enabled for this Firebase project. Enable Phone provider in Firebase Authentication > Sign-in method."
+      );
+
+    case "auth/quota-exceeded":
+      return new AuthError(
+        "quota-exceeded",
+        "SMS quota exceeded for this project. Wait and retry, or review quotas in Firebase/Google Cloud console."
+      );
+
+    case "auth/network-request-failed":
+      return new AuthError(
+        "network",
+        "Network blocked the verification request. Check VPN/proxy/firewall and try again."
       );
 
     case "auth/billing-not-enabled":
@@ -144,6 +174,22 @@ export async function sendOTP(
     );
     return confirmationResult;
   } catch (err) {
+    if (err && typeof err === "object") {
+      const firebaseErr = err as {
+        code?: string;
+        message?: string;
+        name?: string;
+        customData?: unknown;
+      };
+
+      console.error("sendOTP failed", {
+        code: firebaseErr.code,
+        message: firebaseErr.message,
+        name: firebaseErr.name,
+        customData: firebaseErr.customData,
+      });
+    }
+
     throw mapFirebaseError(err);
   }
 }

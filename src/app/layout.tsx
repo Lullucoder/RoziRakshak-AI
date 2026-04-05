@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Outfit, Geist } from "next/font/google";
-import Script from "next/script";
 import { Toaster } from "react-hot-toast";
 import { AuthProvider } from "@/contexts/AuthContext";
 import "./globals.css";
@@ -52,10 +51,6 @@ export default function RootLayout({
       className={cn("h-full", inter.variable, outfit.variable, "font-sans", geist.variable)}
     >
       <body className="min-h-full flex flex-col antialiased">
-        <Script
-          src="https://www.google.com/recaptcha/api.js?render=explicit"
-          strategy="beforeInteractive"
-        />
         <AuthProvider>
           {children}
           <Toaster

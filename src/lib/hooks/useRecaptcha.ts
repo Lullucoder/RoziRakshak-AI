@@ -129,17 +129,22 @@ export function useRecaptcha() {
    * next call to signInWithPhoneNumber gets a fresh token).
    */
   const resetVerifier = useCallback(() => {
-    if (verifierRef.current) {
-      verifierRef.current.render().catch((err) => {
-        console.error("reCAPTCHA reset error:", err);
-      });
+    if (!containerEl) {
       return;
     }
 
-    if (containerEl) {
-      initializeVerifier(containerEl);
+    // Recreate verifier to force a fresh app-verification token.
+    if (verifierRef.current) {
+      clearVerifierInstance();
+      resetState();
     }
-  }, [containerEl, initializeVerifier]);
+
+    try {
+      initializeVerifier(containerEl);
+    } catch (err) {
+      console.error("reCAPTCHA reset error:", err);
+    }
+  }, [containerEl, clearVerifierInstance, initializeVerifier, resetState]);
 
   return {
     /** Attach this ref to an empty `<div>` that acts as the reCAPTCHA container. */
