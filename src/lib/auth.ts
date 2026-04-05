@@ -188,6 +188,12 @@ export async function sendOTP(
         name: firebaseErr.name,
         customData: firebaseErr.customData,
       });
+
+      console.error(
+        "sendOTP failed details:",
+        firebaseErr.code ?? "unknown-code",
+        firebaseErr.message ?? "no-message"
+      );
     }
 
     throw mapFirebaseError(err);

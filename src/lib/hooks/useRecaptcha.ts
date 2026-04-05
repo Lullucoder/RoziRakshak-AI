@@ -19,6 +19,8 @@ import { auth } from "@/lib/firebase";
  */
 export function useRecaptcha() {
   const verifierRef = useRef<RecaptchaVerifier | null>(null);
+  const hostElRef = useRef<HTMLDivElement | null>(null);
+  const widgetIdRef = useRef<number | null>(null);
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const recaptchaRef = useCallback((node: HTMLDivElement | null) => {
     setContainerEl(node);
@@ -35,6 +37,12 @@ export function useRecaptcha() {
     }
 
     verifierRef.current = null;
+    widgetIdRef.current = null;
+
+    if (hostElRef.current) {
+      hostElRef.current.innerHTML = "";
+      hostElRef.current = null;
+    }
   }, []);
 
   const resetState = useCallback(() => {
@@ -47,7 +55,14 @@ export function useRecaptcha() {
     if (verifierRef.current) return;
 
     try {
-      const rv = new RecaptchaVerifier(auth, el, {
+      // Always render into a fresh child node to avoid
+      // "reCAPTCHA has already been rendered in this element".
+      el.innerHTML = "";
+      const host = document.createElement("div");
+      el.appendChild(host);
+      hostElRef.current = host;
+
+      const rv = new RecaptchaVerifier(auth, host, {
         size: "invisible",
         callback: () => {
           // Solved — nothing to do; signInWithPhoneNumber drives the flow.
@@ -56,15 +71,18 @@ export function useRecaptcha() {
         },
         "expired-callback": () => {
           setIsReady(false);
-          rv
-            .render()
-            .then(() => {
+
+          try {
+            const grecaptcha = (globalThis as { grecaptcha?: { reset?: (widgetId?: number) => void } }).grecaptcha;
+
+            if (grecaptcha?.reset) {
+              grecaptcha.reset(widgetIdRef.current ?? undefined);
               setIsReady(true);
-            })
-            .catch((err) => {
-              console.error("reCAPTCHA render error:", err);
-              setError("Failed to load reCAPTCHA. Please refresh the page.");
-            });
+            }
+          } catch (err) {
+            console.error("reCAPTCHA reset after expiry failed:", err);
+            setError("Failed to refresh reCAPTCHA. Please try again.");
+          }
         },
         "error-callback": () => {
           setError("reCAPTCHA error. Please refresh the page.");
@@ -77,7 +95,8 @@ export function useRecaptcha() {
 
       rv
         .render()
-        .then(() => {
+        .then((widgetId) => {
+          widgetIdRef.current = widgetId;
           setIsReady(true);
           setError(null);
         })
@@ -99,28 +118,15 @@ export function useRecaptcha() {
   useEffect(() => {
     if (!containerEl) {
       clearVerifierInstance();
-
-      // Reset UI state asynchronously to avoid sync setState-in-effect warnings.
-      const timer = window.setTimeout(() => {
-        resetState();
-      }, 0);
-
-      return () => window.clearTimeout(timer);
+      resetState();
+      return;
     }
 
-    if (!verifierRef.current) {
-      const timer = window.setTimeout(() => {
-        initializeVerifier(containerEl);
-      }, 0);
-
-      return () => {
-        window.clearTimeout(timer);
-        clearVerifierInstance();
-      };
-    }
+    initializeVerifier(containerEl);
 
     return () => {
       clearVerifierInstance();
+      resetState();
     };
   }, [containerEl, clearVerifierInstance, initializeVerifier, resetState]);
 
@@ -133,13 +139,19 @@ export function useRecaptcha() {
       return;
     }
 
-    // Recreate verifier to force a fresh app-verification token.
-    if (verifierRef.current) {
+    try {
+      const grecaptcha = (globalThis as { grecaptcha?: { reset?: (widgetId?: number) => void } }).grecaptcha;
+
+      if (grecaptcha?.reset && widgetIdRef.current !== null) {
+        grecaptcha.reset(widgetIdRef.current);
+        setIsReady(true);
+        setError(null);
+        return;
+      }
+
+      // Fallback: recreate verifier to force a fresh app-verification token.
       clearVerifierInstance();
       resetState();
-    }
-
-    try {
       initializeVerifier(containerEl);
     } catch (err) {
       console.error("reCAPTCHA reset error:", err);

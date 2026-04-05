@@ -292,7 +292,7 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
             <div
               className="absolute -left-[9999px] top-0 w-px h-px overflow-hidden pointer-events-none"
             >
-              <div id="recaptcha-container" ref={recaptchaRef} />
+              <div ref={recaptchaRef} />
             </div>
           )}
           
