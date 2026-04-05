@@ -55,6 +55,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const useMockAuth = isMockAuthEnabled();
 
+  const isPermissionDeniedError = (err: unknown): boolean => {
+    if (!err || typeof err !== "object") return false;
+    return "code" in err && (err as { code?: string }).code === "permission-denied";
+  };
+
   // Re-hydrate session on auth state change (page reload / token refresh)
   useEffect(() => {
     if (useMockAuth) {
@@ -74,7 +79,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsOnboarded(profile.isOnboarded ?? false);
           }
         } catch (err) {
-          console.error("Failed to fetch worker profile on auth change:", err);
+          if (isPermissionDeniedError(err)) {
+            console.warn("Worker profile read denied by Firestore rules on auth change.", err);
+          } else {
+            console.error("Failed to fetch worker profile on auth change:", err);
+          }
         }
       } else {
         setUser(null);
@@ -125,7 +134,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const credential = await verifyOTP(confirmationResultOrPhone, otp);
         firebaseUser = credential.user;
-        existingProfile = await getWorkerByUid(firebaseUser.uid);
+        try {
+          existingProfile = await getWorkerByUid(firebaseUser.uid);
+        } catch (err) {
+          if (isPermissionDeniedError(err)) {
+            existingProfile = null;
+          } else {
+            throw err;
+          }
+        }
 
         if (!existingProfile) {
           // Create new workers document with minimal data
@@ -152,7 +169,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           };
 
           const workerDocRef = doc(db, "workers", firebaseUser.uid);
-          await setDoc(workerDocRef, newProfileData);
+          try {
+            await setDoc(workerDocRef, newProfileData, { merge: true });
+          } catch (err) {
+            if (isPermissionDeniedError(err)) {
+              throw new Error(
+                "Firestore permissions blocked profile creation. Deploy updated Firestore rules and try again."
+              );
+            }
+            throw err;
+          }
 
           existingProfile = {
             ...newProfileData,

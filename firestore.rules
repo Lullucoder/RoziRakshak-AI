@@ -19,6 +19,7 @@ service cloud.firestore {
     /// Reads the role directly from Firestore — no custom claims required.
     function isAdmin() {
       return isAuthenticated()
+        && exists(/databases/$(database)/documents/workers/$(request.auth.uid))
         && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.role == "admin";
     }
 
