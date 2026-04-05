@@ -243,6 +243,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
+        } else if (existingProfile.role !== selectedRole) {
+          // Existing user switching role (e.g. logging in as admin with a worker profile).
+          // Update Firestore and local profile to reflect the selected role.
+          const workerDocRef = doc(db, "workers", firebaseUser.uid);
+          const isNowAdmin = selectedRole === "admin";
+          try {
+            await setDoc(
+              workerDocRef,
+              {
+                role: selectedRole,
+                isOnboarded: isNowAdmin ? true : existingProfile.isOnboarded,
+                updatedAt: serverTimestamp(),
+              },
+              { merge: true }
+            );
+          } catch (err) {
+            if (!isPermissionDeniedError(err)) throw err;
+            console.warn("Could not update role in Firestore (permission denied).");
+          }
+          existingProfile = {
+            ...existingProfile,
+            role: selectedRole as UserRole,
+            isOnboarded: isNowAdmin ? true : (existingProfile.isOnboarded ?? false),
+          };
         }
 
         // Create server-side session cookie so /worker/* and /admin/* routes
