@@ -187,13 +187,16 @@ export async function POST(request: NextRequest): Promise<Response> {
     configureCloudinary(values);
 
     const contentType = request.headers.get("content-type") ?? "";
-    let imageBuffer: Buffer;
+    let imageBuffer: Buffer | null = null;
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
       const file = formData.get("file");
       if (!(file instanceof Blob)) {
-        return Response.json({ error: "Missing image file in form data." }, { status: 400 });
+        return Response.json(
+          { error: "Missing image file in form data. Expected field name 'file'." },
+          { status: 400 }
+        );
       }
 
       const arrayBuffer = await file.arrayBuffer();
@@ -201,12 +204,24 @@ export async function POST(request: NextRequest): Promise<Response> {
         return Response.json({ error: "Received empty image payload." }, { status: 400 });
       }
       imageBuffer = Buffer.from(arrayBuffer);
-    } else {
+    }
+
+    if (!imageBuffer) {
       const arrayBuffer = await request.arrayBuffer();
-      if (arrayBuffer.byteLength === 0) {
-        return Response.json({ error: "Missing image payload in request body." }, { status: 400 });
+      if (arrayBuffer.byteLength > 0) {
+        imageBuffer = Buffer.from(arrayBuffer);
       }
-      imageBuffer = Buffer.from(arrayBuffer);
+    }
+
+    if (!imageBuffer) {
+      return Response.json(
+        {
+          error: "Missing image payload in request body.",
+          hint: "Send multipart/form-data with a 'file' field or raw image bytes.",
+          receivedContentType: contentType || "none",
+        },
+        { status: 400 }
+      );
     }
 
     const upload = await uploadFaceBufferToCloudinary(imageBuffer, uid);

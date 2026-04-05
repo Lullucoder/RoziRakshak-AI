@@ -46,14 +46,16 @@ export function FaceVerificationStep({
   const handleLivenessSuccess = useCallback(async (blob: Blob) => {
     setPhase("uploading");
     try {
+      const formData = new FormData();
+      formData.append("file", blob, `${workerUid}.jpg`);
+
       // Upload face image to storage via server API.
       const res = await fetch("/api/upload/face", {
         method: "POST",
         headers: {
-          "Content-Type": "image/jpeg",
           "x-worker-uid": workerUid,
         },
-        body: blob,
+        body: formData,
       });
 
       const body = (await res.json().catch(() => ({}))) as {
