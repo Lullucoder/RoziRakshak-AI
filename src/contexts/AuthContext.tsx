@@ -6,7 +6,7 @@ import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { db } from "@/lib/firebase";
 import { getWorkerByUid } from "@/lib/firestore";
-import { verifyOTP, firebaseSignOut } from "@/lib/auth";
+import { verifyOTP, signInWithGoogle as firebaseGoogleSignIn, firebaseSignOut } from "@/lib/auth";
 import { WorkerProfile, UserRole } from "@/types";
 import {
   isMockAuthEnabled,
@@ -29,6 +29,7 @@ interface AuthContextType {
     otp: string,
     selectedRole: "worker" | "admin"
   ) => Promise<void>;
+  signInWithGoogle: (selectedRole: "worker" | "admin") => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -39,6 +40,9 @@ const AuthContext = createContext<AuthContextType>({
   isOnboarded: false,
   loading: true,
   verifyOtp: async () => {
+    throw new Error("Not implemented");
+  },
+  signInWithGoogle: async () => {
     throw new Error("Not implemented");
   },
   signOut: async () => {},
@@ -309,9 +313,108 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsOnboarded(false);
   };
 
+  // ─── Google Sign-In ──────────────────────────────────────────────────────────
+
+  const handleGoogleSignIn = async (selectedRole: "worker" | "admin") => {
+    setLoading(true);
+    try {
+      const credential = await firebaseGoogleSignIn();
+      const firebaseUser = credential.user;
+
+      let existingProfile: WorkerProfile | null;
+      try {
+        existingProfile = await getWorkerByUid(firebaseUser.uid);
+      } catch (err) {
+        if (isPermissionDeniedError(err)) {
+          existingProfile = null;
+        } else {
+          throw err;
+        }
+      }
+
+      if (!existingProfile) {
+        const isAdmin = selectedRole === "admin";
+        const newProfileData = {
+          uid: firebaseUser.uid,
+          phone: firebaseUser.phoneNumber ?? "",
+          name: firebaseUser.displayName ?? "",
+          city: "",
+          platform: "",
+          zone: "",
+          workingHours: "",
+          weeklyEarningRange: "",
+          upiId: "",
+          role: selectedRole as UserRole,
+          isOnboarded: isAdmin,
+          trustScore: 0.8,
+          activePlan: null,
+          claimsCount: 0,
+          joinedDate: serverTimestamp(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+
+        const workerDocRef = doc(db, "workers", firebaseUser.uid);
+        try {
+          await setDoc(workerDocRef, newProfileData, { merge: true });
+        } catch (err) {
+          if (isPermissionDeniedError(err)) {
+            throw new Error(
+              "Firestore permissions blocked profile creation. Deploy updated Firestore rules and try again."
+            );
+          }
+          throw err;
+        }
+
+        existingProfile = {
+          ...newProfileData,
+          id: firebaseUser.uid,
+          joinedDate: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      } else if (existingProfile.role !== selectedRole) {
+        const workerDocRef = doc(db, "workers", firebaseUser.uid);
+        const isNowAdmin = selectedRole === "admin";
+        try {
+          await setDoc(
+            workerDocRef,
+            {
+              role: selectedRole,
+              isOnboarded: isNowAdmin ? true : existingProfile.isOnboarded,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        } catch (err) {
+          if (!isPermissionDeniedError(err)) throw err;
+        }
+        existingProfile = {
+          ...existingProfile,
+          role: selectedRole as UserRole,
+          isOnboarded: isNowAdmin ? true : (existingProfile.isOnboarded ?? false),
+        };
+      }
+
+      try {
+        await createServerSession(firebaseUser);
+      } catch (err) {
+        await firebaseSignOut();
+        throw err;
+      }
+
+      setUser(firebaseUser);
+      setUserProfile(existingProfile);
+      setRole(existingProfile.role);
+      setIsOnboarded(existingProfile.isOnboarded ?? false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, userProfile, role, isOnboarded, loading, verifyOtp, signOut: handleSignOut }}
+      value={{ user, userProfile, role, isOnboarded, loading, verifyOtp, signInWithGoogle: handleGoogleSignIn, signOut: handleSignOut }}
     >
       {children}
     </AuthContext.Provider>

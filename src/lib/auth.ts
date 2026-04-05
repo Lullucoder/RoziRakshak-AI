@@ -1,5 +1,5 @@
 /**
- * Firebase Phone Auth — client-side helpers.
+ * Firebase Auth — client-side helpers.
  *
  * These are pure functions (not hooks) that wrap the Firebase Auth SDK.
  * They handle phone-number formatting, error mapping, and nothing else —
@@ -8,6 +8,8 @@
 
 import {
   signInWithPhoneNumber,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut,
   type ConfirmationResult,
   type ApplicationVerifier,
@@ -240,6 +242,20 @@ export async function verifyOTP(
 
   try {
     return await confirmationResult.confirm(code);
+  } catch (err) {
+    throw mapFirebaseError(err);
+  }
+}
+
+/**
+ * Sign in with Google via popup.
+ *
+ * @returns  Firebase `UserCredential` on success
+ */
+export async function signInWithGoogle(): Promise<UserCredential> {
+  try {
+    const provider = new GoogleAuthProvider();
+    return await signInWithPopup(auth, provider);
   } catch (err) {
     throw mapFirebaseError(err);
   }
