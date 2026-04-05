@@ -147,6 +147,9 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
     } catch (error) {
       if (error instanceof AuthError) {
         switch (error.code) {
+          case "billing-not-enabled":
+            toast.error(error.message);
+            break;
           case "invalid-otp":
             toast.error("Incorrect OTP. Please check and try again.");
             break;
@@ -288,7 +291,6 @@ export function LoginModal({ isOpen, onOpenChange }: LoginModalProps) {
           {!useMockAuth && (
             <div
               className="absolute -left-[9999px] top-0 w-px h-px overflow-hidden pointer-events-none"
-              aria-hidden="true"
             >
               <div id="recaptcha-container" ref={recaptchaRef} />
             </div>

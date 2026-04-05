@@ -21,6 +21,7 @@ export type AuthErrorCode =
   | "invalid-phone"
   | "too-many-requests"
   | "recaptcha-failed"
+  | "billing-not-enabled"
   | "invalid-otp"
   | "otp-expired"
   | "unknown";
@@ -95,6 +96,12 @@ function mapFirebaseError(err: unknown): AuthError {
       return new AuthError(
         "recaptcha-failed",
         "reCAPTCHA verification failed. Please refresh and try again."
+      );
+
+    case "auth/billing-not-enabled":
+      return new AuthError(
+        "billing-not-enabled",
+        "Phone authentication for real numbers requires billing on your Firebase project. Enable Billing (Blaze plan) in Firebase/Google Cloud and try again."
       );
 
     case "auth/invalid-verification-code":

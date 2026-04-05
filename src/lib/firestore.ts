@@ -156,11 +156,9 @@ export async function getWorker(id: string): Promise<WorkerProfile | null> {
 export async function getWorkerByUid(
   uid: string
 ): Promise<WorkerProfile | null> {
-  const results = await queryDocuments<WorkerProfile>(
-    COLLECTIONS.workers,
-    where("uid", "==", uid)
-  );
-  return results[0] ?? null;
+  // Worker document IDs are the Firebase Auth UID.
+  // Direct doc reads align with Firestore security rules better than list queries.
+  return getDocument<WorkerProfile>(COLLECTIONS.workers, uid);
 }
 
 /** Create a new worker profile. Returns the new document ID. */
