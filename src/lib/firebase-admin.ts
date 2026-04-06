@@ -40,12 +40,24 @@ let cachedDb: Firestore | null = null;
 let cachedStorage: Storage | null = null;
 
 function getServiceAccountFromEnv(): ServiceAccount {
+  const rawKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY!;
+  const parsedKey = rawKey.replace(/\\n/g, "\n");
+
+  // ── Debug: log key shape (remove after fixing deployment) ──
+  console.log("[firebase-admin] Private key diagnostics:", {
+    rawKeyLen: rawKey.length,
+    parsedKeyLen: parsedKey.length,
+    startsCorrectly: parsedKey.trimStart().startsWith("-----BEGIN PRIVATE KEY-----"),
+    endsCorrectly: parsedKey.trimEnd().endsWith("-----END PRIVATE KEY-----"),
+    firstChars: rawKey.slice(0, 40),
+    lastChars: rawKey.slice(-40),
+    newlineCount: (parsedKey.match(/\n/g) || []).length,
+  });
+
   return {
     projectId: process.env.FIREBASE_ADMIN_PROJECT_ID!,
     clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL!,
-    // The private key is stored as a single-line string with literal "\\n".
-    // We replace them with real newlines so the PEM is valid.
-    privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY!.replace(/\\n/g, "\n"),
+    privateKey: parsedKey,
   };
 }
 
