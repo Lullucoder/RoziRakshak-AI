@@ -39,6 +39,9 @@ let cachedAuth: Auth | null = null;
 let cachedDb: Firestore | null = null;
 let cachedStorage: Storage | null = null;
 
+const PEM_BEGIN = "-----BEGIN PRIVATE KEY-----";
+const PEM_END = "-----END PRIVATE KEY-----";
+
 function stripWrappingQuotes(value: string): string {
   const trimmed = value.trim();
   if (
@@ -57,10 +60,39 @@ function normalizeAdminPrivateKey(rawValue: string): string {
   // 1) JSON-style escaped newlines (\n)
   // 2) Escaped carriage returns (\r)
   // 3) Windows newlines (\r\n)
-  return unquoted
+  const normalized = unquoted
     .replace(/\\n/g, "\n")
     .replace(/\\r/g, "\r")
-    .replace(/\r\n/g, "\n");
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+
+  // Some deployments store the key as base64-encoded PEM.
+  const maybeBase64 = normalized.replace(/\s+/g, "");
+  if (!normalized.includes(PEM_BEGIN) && /^[A-Za-z0-9+/=]+$/.test(maybeBase64)) {
+    try {
+      const decoded = Buffer.from(maybeBase64, "base64").toString("utf8").trim();
+      if (decoded.includes(PEM_BEGIN) && decoded.includes(PEM_END)) {
+        return normalizeAdminPrivateKey(decoded);
+      }
+    } catch {
+      // Not valid base64 PEM; continue with normal parsing path.
+    }
+  }
+
+  if (!normalized.includes(PEM_BEGIN) || !normalized.includes(PEM_END)) {
+    return normalized;
+  }
+
+  // Canonicalize PEM to avoid formatting issues from copy/paste in env UIs.
+  const beginIdx = normalized.indexOf(PEM_BEGIN);
+  const endIdx = normalized.indexOf(PEM_END);
+  const keyBodyRaw = normalized
+    .slice(beginIdx + PEM_BEGIN.length, endIdx)
+    .replace(/\s+/g, "");
+
+  const chunks = keyBodyRaw.match(/.{1,64}/g) ?? [];
+  return `${PEM_BEGIN}\n${chunks.join("\n")}\n${PEM_END}\n`;
 }
 
 function sanitizeEnvValue(rawValue: string): string {

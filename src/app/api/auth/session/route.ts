@@ -126,7 +126,7 @@ export async function POST(request: Request) {
           code: "ADMIN_SDK_CONFIG_ERROR",
           error: "Server auth configuration error",
           hint:
-            "Check FIREBASE_ADMIN_PROJECT_ID, FIREBASE_ADMIN_CLIENT_EMAIL, and FIREBASE_ADMIN_PRIVATE_KEY in deployment environment variables. Ensure private key formatting preserves line breaks.",
+            "Check FIREBASE_ADMIN_PROJECT_ID, FIREBASE_ADMIN_CLIENT_EMAIL, and FIREBASE_ADMIN_PRIVATE_KEY in deployment environment variables. In Vercel, either paste the full multiline PEM (BEGIN/END lines included) or a single-line value with literal \\n escapes.",
           detail: process.env.NODE_ENV === "development" ? detail : undefined,
         },
         { status: 500 }
