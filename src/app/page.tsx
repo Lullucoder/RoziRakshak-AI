@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -66,7 +66,7 @@ const fadeUp = {
   }),
 };
 
-export default function LandingPage() {
+function LandingPageContent() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const { user, userProfile, role, loading } = useAuth();
   const router = useRouter();
@@ -448,5 +448,13 @@ export default function LandingPage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function LandingPage() {
+  return (
+    <Suspense fallback={null}>
+      <LandingPageContent />
+    </Suspense>
   );
 }
