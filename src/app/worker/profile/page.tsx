@@ -1,9 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
+import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import {
   UserCircle,
   Phone,
@@ -20,6 +22,10 @@ import {
   ScanFace,
   Sun,
   Moon,
+  Pencil,
+  Check,
+  X,
+  Loader2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useWorkerTheme } from "../layout";
@@ -52,20 +58,51 @@ export default function ProfilePage() {
     aadhaar_verified_at: new Date("2026-04-04T16:00:00.000Z").toISOString(),
   };
 
-  const items = [
-    {
-      icon: Phone,
-      label: "Phone",
-      value:
-        profileData.phone ||
-        (user as { phoneNumber?: string | null } | null)?.phoneNumber ||
-        "Not available",
-    },
-    { icon: MapPin,    label: "City & Zone",   value: `${profileData.city}, ${profileData.zone}` },
-    { icon: Briefcase, label: "Platform",      value: profileData.platform },
-    { icon: Clock,     label: "Working Hours", value: profileData.workingHours },
-    { icon: Wallet,    label: "UPI ID",        value: profileData.upiId },
-  ];
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editData, setEditData] = useState({
+    name: profileData.name ?? "",
+    city: profileData.city ?? "",
+    zone: profileData.zone ?? "",
+    platform: profileData.platform ?? "",
+    workingHours: profileData.workingHours ?? "",
+    upiId: profileData.upiId ?? "",
+  });
+
+  const handleSave = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "workers", user.uid), {
+        name: editData.name,
+        city: editData.city,
+        zone: editData.zone,
+        platform: editData.platform,
+        workingHours: editData.workingHours,
+        upiId: editData.upiId,
+        updatedAt: serverTimestamp(),
+      });
+      toast.success("Profile updated successfully!");
+      setEditing(false);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to update profile. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditData({
+      name: profileData.name ?? "",
+      city: profileData.city ?? "",
+      zone: profileData.zone ?? "",
+      platform: profileData.platform ?? "",
+      workingHours: profileData.workingHours ?? "",
+      upiId: profileData.upiId ?? "",
+    });
+    setEditing(false);
+  };
 
   const trustScore = typeof userProfile?.trustScore === "number" ? userProfile.trustScore : 0;
 
@@ -102,9 +139,19 @@ export default function ProfilePage() {
 
         {/* Name + KYC badge inline */}
         <div className="flex items-center gap-2 mb-1">
-          <h1 className="text-xl font-bold" style={{ fontFamily: "var(--font-outfit)" }}>
-            {profileData.name}
-          </h1>
+          {editing ? (
+            <input
+              value={editData.name}
+              onChange={(e) => setEditData(prev => ({ ...prev, name: e.target.value }))}
+              className="text-xl font-bold bg-transparent border-b-2 border-primary outline-none text-center"
+              style={{ fontFamily: "var(--font-outfit)", minHeight: "48px" }}
+              placeholder="Your name"
+            />
+          ) : (
+            <h1 className="text-xl font-bold" style={{ fontFamily: "var(--font-outfit)" }}>
+              {profileData.name}
+            </h1>
+          )}
           {aadhaarVerified && (
             <motion.div
               initial={{ scale: 0, opacity: 0 }}
@@ -163,6 +210,44 @@ export default function ProfilePage() {
             Face Verified
           </motion.div>
         )}
+
+        <div className="flex gap-2 mt-3">
+          {!editing ? (
+            <button
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              style={{ background: "linear-gradient(135deg, #6c5ce7, #a855f7)", minHeight: "44px" }}
+            >
+              <Pencil className="w-4 h-4" />
+              Edit Profile
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #10b981, #059669)", minHeight: "44px" }}
+              >
+                {saving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
+                {saving ? "Saving..." : "Save"}
+              </button>
+              <button
+                onClick={handleCancel}
+                disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-border text-muted-foreground disabled:opacity-50"
+                style={{ minHeight: "44px" }}
+              >
+                <X className="w-4 h-4" />
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
       </motion.div>
 
       {/* KYC Details Card (only if verified) */}
@@ -246,7 +331,21 @@ export default function ProfilePage() {
 
       {/* Profile Details */}
       <div className="space-y-2 mb-6">
-        {items.map((item, i) => (
+        {[
+          { 
+            icon: Phone, 
+            label: "Phone", 
+            field: null,
+            value: profileData.phone || 
+                   (user as { phoneNumber?: string | null } | null)?.phoneNumber || 
+                   "Not available"
+          },
+          { icon: MapPin,    label: "City",          field: "city",         value: editData.city },
+          { icon: MapPin,    label: "Zone",          field: "zone",         value: editData.zone },
+          { icon: Briefcase, label: "Platform",      field: "platform",     value: editData.platform },
+          { icon: Clock,     label: "Working Hours", field: "workingHours", value: editData.workingHours },
+          { icon: Wallet,    label: "UPI ID",        field: "upiId",        value: editData.upiId },
+        ].map((item, i) => (
           <motion.div
             key={item.label}
             className="glass rounded-xl p-4 flex items-center gap-3"
@@ -254,12 +353,60 @@ export default function ProfilePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.05 * (i + 2) }}
           >
-            <item.icon className="w-5 h-5 text-muted-foreground" />
+            <item.icon className="w-5 h-5 text-muted-foreground flex-shrink-0" />
             <div className="flex-1">
               <p className="text-[10px] text-muted-foreground">{item.label}</p>
-              <p className="text-sm font-medium">{item.value}</p>
+              {editing && item.field ? (
+                item.field === "workingHours" ? (
+                  <select
+                    value={editData[item.field as keyof typeof editData]}
+                    onChange={(e) => setEditData(prev => ({ 
+                      ...prev, 
+                      [item.field as string]: e.target.value 
+                    }))}
+                    className="text-sm font-medium bg-transparent border-b border-primary outline-none w-full"
+                    style={{ minHeight: "32px" }}
+                  >
+                    {["6 AM","7 AM","8 AM","9 AM","10 AM","11 AM",
+                      "12 PM","1 PM","2 PM","3 PM","4 PM","5 PM",
+                      "6 PM","7 PM","8 PM","9 PM","10 PM"].map(h => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
+                ) : item.field === "platform" ? (
+                  <select
+                    value={editData[item.field as keyof typeof editData]}
+                    onChange={(e) => setEditData(prev => ({ 
+                      ...prev, 
+                      [item.field as string]: e.target.value 
+                    }))}
+                    className="text-sm font-medium bg-transparent border-b border-primary outline-none w-full"
+                    style={{ minHeight: "32px" }}
+                  >
+                    {["Zepto","Blinkit","Instamart",
+                      "BigBasket Now","Swiggy Instamart","Other"].map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={editData[item.field as keyof typeof editData]}
+                    onChange={(e) => setEditData(prev => ({ 
+                      ...prev, 
+                      [item.field as string]: e.target.value 
+                    }))}
+                    className="text-sm font-medium bg-transparent border-b border-primary outline-none w-full"
+                    style={{ minHeight: "32px" }}
+                    placeholder={item.label}
+                  />
+                )
+              ) : (
+                <p className="text-sm font-medium">{item.value || "—"}</p>
+              )}
             </div>
-            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            {!editing && (
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            )}
           </motion.div>
         ))}
       </div>
